@@ -22,7 +22,7 @@ Documentation-first repository. Implementation order below is intentional.
 - [x] Entrypoint installs CLI into `/opt/cursor-cli` volume (not HOME)
 
 - [x] Explicit model map (Auto + allowlisted Cursor models)
-- [x] Conversation / session policy that avoids assistant-text replay (latest user turn only)
+- [x] Conversation policy: forward client `messages[]` history into print-mode prompts (no sticky session yet)
 - [x] Workspace path jail documentation + optional deny patterns (see [deploy.md](deploy.md))
 - [x] Structured logging without secret leakage (no bearer in health/errors)
 - [x] Container image build that installs nothing under a masked `HOME` mount

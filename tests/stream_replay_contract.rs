@@ -1,4 +1,4 @@
-//! Contract: streaming SSE and no prior-assistant replay into the agent prompt.
+//! Contract: streaming SSE and multi-turn history forwarded to the agent prompt.
 
 use std::path::PathBuf;
 
@@ -20,8 +20,9 @@ fn app() -> axum::Router {
 }
 
 #[tokio::test]
-async fn chat_sends_only_latest_user_turn_to_agent() {
-    // Fake agent echoes the prompt. Prior assistant text must not be included.
+async fn chat_forwards_prior_turns_in_agent_prompt() {
+    // Fake agent echoes the prompt. OpenAI clients send full history each request;
+    // print-mode turns have no sticky Cursor session, so prior turns must be included.
     let response = app()
         .oneshot(
             axum::http::Request::builder()
@@ -34,9 +35,9 @@ async fn chat_sends_only_latest_user_turn_to_agent() {
                       "model":"cursor-auto",
                       "stream":false,
                       "messages":[
-                        {"role":"user","content":"ONE"},
-                        {"role":"assistant","content":"ONE"},
-                        {"role":"user","content":"TWO"}
+                        {"role":"user","content":"Create a file"},
+                        {"role":"assistant","content":"What should it be named?"},
+                        {"role":"user","content":"What did we say in this conversation?"}
                       ]
                     }"#,
                 ))
@@ -50,10 +51,17 @@ async fn chat_sends_only_latest_user_turn_to_agent() {
     let content = json["choices"][0]["message"]["content"]
         .as_str()
         .expect("content");
-    assert_eq!(content, "TWO");
     assert!(
-        !content.contains("ONE"),
-        "prior assistant/user text leaked into agent prompt: {content}"
+        content.contains("Create a file"),
+        "missing prior user turn in agent prompt: {content}"
+    );
+    assert!(
+        content.contains("What should it be named?"),
+        "missing prior assistant turn in agent prompt: {content}"
+    );
+    assert!(
+        content.contains("What did we say in this conversation?"),
+        "missing latest user turn in agent prompt: {content}"
     );
 }
 
@@ -114,5 +122,5 @@ async fn chat_stream_emits_sse_with_reassembled_content() {
             assembled.push_str(piece);
         }
     }
-    assert_eq!(assembled, "OK");
+    assert_eq!(assembled, "User: OK");
 }

@@ -252,7 +252,7 @@ async fn chat_completions(
     Json(body): Json<ChatRequest>,
 ) -> Response {
     let config = &state.config;
-    let prompt = match latest_user_prompt(&body.messages) {
+    let prompt = match conversation_prompt(&body.messages) {
         Some(text) => text,
         None => {
             return (
@@ -373,12 +373,26 @@ fn sse_completion(model: &str, content: &str) -> Response {
     (StatusCode::OK, headers, body).into_response()
 }
 
-fn latest_user_prompt(messages: &[ChatMessage]) -> Option<String> {
-    messages
-        .iter()
-        .rev()
-        .find(|message| message.role == "user")
-        .map(|message| message.content.clone())
+/// Build a print-mode prompt from the OpenAI `messages` array.
+/// Requires at least one user turn; includes prior user/assistant/system text
+/// because CLI print turns have no sticky Cursor session of their own.
+fn conversation_prompt(messages: &[ChatMessage]) -> Option<String> {
+    let has_user = messages.iter().any(|message| message.role == "user");
+    if !has_user {
+        return None;
+    }
+
+    let mut lines = Vec::new();
+    for message in messages {
+        let label = match message.role.as_str() {
+            "system" => "System",
+            "user" => "User",
+            "assistant" => "Assistant",
+            other => other,
+        };
+        lines.push(format!("{label}: {}", message.content));
+    }
+    Some(lines.join("\n"))
 }
 
 fn sanitize_agent_error(raw: &str) -> String {

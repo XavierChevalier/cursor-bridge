@@ -64,7 +64,7 @@ Required assertions (non-exhaustive):
 - `POST /v1/chat/completions` with valid Bearer → assistant content equals the fake's payload (e.g. exact `OK`)
 - Same with `stream: true` → valid SSE, reassembled content equals `OK`, stream ends with `[DONE]`
 - Missing or wrong Bearer → 401
-- Multi-turn: second completion content must **not** prepend the first assistant reply (anti-replay / anti-concatenation)
+- Multi-turn: second completion must include prior user/assistant turns in the agent prompt (client history is the only memory in print mode)
 
 ### Layer 2: Client-shaped HTTP (merge-blocking)
 

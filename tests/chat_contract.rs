@@ -68,5 +68,5 @@ async fn chat_non_stream_content_is_exactly_ok() {
     let content = json["choices"][0]["message"]["content"]
         .as_str()
         .expect("content string");
-    assert_eq!(content, "Say something");
+    assert_eq!(content, "User: Say something");
 }
