@@ -1,4 +1,4 @@
-//! One-shot setup UI: agent login in the browser, then setup routes die.
+//! One-shot setup UI: open during first login, then gone; /v1 stays Bearer-gated.
 
 use std::path::PathBuf;
 
@@ -21,7 +21,7 @@ fn app_with_state_dir(state_dir: &std::path::Path, force_setup: bool) -> axum::R
 }
 
 #[tokio::test]
-async fn setup_page_requires_bearer() {
+async fn setup_page_is_open_without_bearer_during_setup() {
     let state = tempfile::tempdir().unwrap();
     let app = app_with_state_dir(state.path(), true);
     let response = app
@@ -33,7 +33,11 @@ async fn setup_page_requires_bearer() {
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    let body =
+        String::from_utf8_lossy(&response.into_body().collect().await.unwrap().to_bytes()).into_owned();
+    assert!(body.contains("Start login"), "body={body}");
+    assert!(!body.to_lowercase().contains("bridge api key"));
 }
 
 #[tokio::test]
@@ -41,32 +45,12 @@ async fn setup_login_returns_url_then_routes_go_away() {
     let state = tempfile::tempdir().unwrap();
     let app = app_with_state_dir(state.path(), true);
 
-    let page = app
-        .clone()
-        .oneshot(
-            axum::http::Request::builder()
-                .uri("/")
-                .header("Authorization", "Bearer test-bridge-key")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(page.status(), axum::http::StatusCode::OK);
-    let page_body =
-        String::from_utf8_lossy(&page.into_body().collect().await.unwrap().to_bytes()).into_owned();
-    assert!(
-        page_body.contains("Start login") || page_body.contains("start login"),
-        "body={page_body}"
-    );
-
     let login = app
         .clone()
         .oneshot(
             axum::http::Request::builder()
                 .method("POST")
                 .uri("/setup/login")
-                .header("Authorization", "Bearer test-bridge-key")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -89,7 +73,6 @@ async fn setup_login_returns_url_then_routes_go_away() {
         .oneshot(
             axum::http::Request::builder()
                 .uri("/setup/status")
-                .header("Authorization", "Bearer test-bridge-key")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -101,10 +84,10 @@ async fn setup_login_returns_url_then_routes_go_away() {
     assert_eq!(status_json["setup_enabled"], false);
 
     let gone = app
+        .clone()
         .oneshot(
             axum::http::Request::builder()
                 .uri("/")
-                .header("Authorization", "Bearer test-bridge-key")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -112,6 +95,18 @@ async fn setup_login_returns_url_then_routes_go_away() {
         .unwrap();
     assert_eq!(gone.status(), axum::http::StatusCode::GONE);
     assert!(state.path().join(".cursor-bridge-setup-complete").is_file());
+
+    // /v1 still requires the bridge API key after setup.
+    let unauthorized = app
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/v1/models")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), axum::http::StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
@@ -123,7 +118,6 @@ async fn setup_stays_gone_when_flag_present() {
         .oneshot(
             axum::http::Request::builder()
                 .uri("/")
-                .header("Authorization", "Bearer test-bridge-key")
                 .body(Body::empty())
                 .unwrap(),
         )

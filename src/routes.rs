@@ -21,16 +21,17 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/chat/completions", post(chat_completions))
         .layer(from_fn_with_state(state.clone(), require_bearer));
 
-    let protected_setup = Router::new()
+    // First-time setup is intentionally open (Tailscale is the gate). After
+    // login succeeds these handlers return 410 and /v1 stays Bearer-protected.
+    let setup = Router::new()
         .route("/", get(setup_page))
         .route("/setup/login", post(setup_login))
-        .route("/setup/status", get(setup_status))
-        .layer(from_fn_with_state(state.clone(), require_bearer));
+        .route("/setup/status", get(setup_status));
 
     Router::new()
         .route("/healthz", get(healthz))
         .merge(protected_api)
-        .merge(protected_setup)
+        .merge(setup)
         .with_state(state)
 }
 
@@ -71,7 +72,6 @@ async fn setup_login(State(state): State<AppState>) -> Response {
 
     match agent::login_url(&state.config).await {
         Ok(login_url) => {
-            // Fake/real login may already be complete; refresh status.
             if let Ok(status) = agent::status(&state.config).await {
                 if status.logged_in {
                     let _ = mark_setup_complete(&state);
@@ -141,7 +141,6 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
     :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
     body { max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.45; }
     button { font: inherit; padding: 0.5rem 1rem; cursor: pointer; }
-    input { font: inherit; width: 100%; padding: 0.4rem; box-sizing: border-box; }
     .row { margin: 1rem 0; }
     #url a { word-break: break-all; }
     .muted { opacity: 0.75; font-size: 0.95rem; }
@@ -150,11 +149,7 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
 </head>
 <body>
   <h1>Cursor Bridge setup</h1>
-  <p class="muted">One-time Cursor CLI login. This page disables itself after success.</p>
-  <div class="row">
-    <label for="key">Bridge API key</label>
-    <input id="key" type="password" autocomplete="current-password" placeholder="CURSOR_BRIDGE_API_KEY" />
-  </div>
+  <p class="muted">One-time Cursor CLI login. No bridge API key needed here. This page disables itself after success; <code>/v1</code> stays Bearer-protected.</p>
   <div class="row">
     <button id="login" type="button">Start login</button>
   </div>
@@ -162,28 +157,19 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
   <p id="url"></p>
   <p id="err" class="err"></p>
   <script>
-    const keyEl = document.getElementById('key');
     const statusEl = document.getElementById('status');
     const urlEl = document.getElementById('url');
     const errEl = document.getElementById('err');
-    const saved = sessionStorage.getItem('bridgeKey');
-    if (saved) keyEl.value = saved;
-
-    function authHeaders() {
-      const key = keyEl.value.trim();
-      sessionStorage.setItem('bridgeKey', key);
-      return { 'Authorization': 'Bearer ' + key };
-    }
 
     async function refreshStatus() {
-      const res = await fetch('/setup/status', { headers: authHeaders() });
+      const res = await fetch('/setup/status');
       const body = await res.json();
       if (!res.ok) throw new Error(body.error?.message || res.statusText);
       statusEl.textContent = body.logged_in
         ? ('Logged in. Setup ' + (body.setup_enabled ? 'still open' : 'disabled.'))
         : (body.summary || 'Not logged in');
       if (body.logged_in && body.setup_enabled === false) {
-        statusEl.textContent = 'Setup complete. This UI is gone; use /v1 only.';
+        statusEl.textContent = 'Setup complete. This UI is gone; clients use /v1 with the bridge API key.';
         document.getElementById('login').disabled = true;
       }
       return body;
@@ -194,7 +180,7 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
       urlEl.textContent = '';
       try {
         statusEl.textContent = 'Starting agent login…';
-        const res = await fetch('/setup/login', { method: 'POST', headers: authHeaders() });
+        const res = await fetch('/setup/login', { method: 'POST' });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error?.message || res.statusText);
         if (body.login_url) {
@@ -212,7 +198,7 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
       }
     };
 
-    keyEl.addEventListener('change', () => refreshStatus().catch(() => {}));
+    refreshStatus().catch(() => {});
   </script>
 </body>
 </html>

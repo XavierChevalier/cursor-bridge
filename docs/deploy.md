@@ -46,7 +46,7 @@ messages (see contract tests).
 
 On first boot (Cursor not logged in, no `.cursor-bridge-setup-complete` flag in
 `CURSOR_BRIDGE_STATE_DIR` / `$HOME`), the bridge serves a minimal HTML page at
-`/` (Bearer auth with `CURSOR_BRIDGE_API_KEY`).
+`/` (open during first setup (no API key); `/v1` stays Bearer-protected).
 
 1. Open the Tailscale hostname (e.g. `https://cursor-bridge`).
 2. Enter the bridge API key, click **Start login**, open the printed Cursor URL.
