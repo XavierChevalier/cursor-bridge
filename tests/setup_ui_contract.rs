@@ -37,7 +37,7 @@ async fn setup_page_is_open_without_bearer_during_setup() {
     let body =
         String::from_utf8_lossy(&response.into_body().collect().await.unwrap().to_bytes()).into_owned();
     assert!(body.contains("Start login"), "body={body}");
-    assert!(!body.to_lowercase().contains("bridge api key"));
+    assert!(body.contains("No bridge API key needed here"), "body={body}");
 }
 
 #[tokio::test]
