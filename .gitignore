@@ -1,0 +1,37 @@
+# Local env and secrets (never commit)
+.env
+.env.*
+!.env.example
+
+# Credentials and keys
+*.pem
+*.key
+id_rsa*
+.ssh/
+.cursor/
+.npmrc
+.git-credentials
+
+# Runtime / local state
+state/
+data/
+home/
+projects/
+*.log
+.cache/
+
+# Python / Node (when implementation lands)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+dist/
+build/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+.test-tmp.*/
