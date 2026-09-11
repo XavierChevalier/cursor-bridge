@@ -13,24 +13,24 @@ fail() {
 
 grep -q 'CURSOR_CLI_HOME=/opt/cursor-cli' "${DOCKERFILE}" || fail "Dockerfile must set CURSOR_CLI_HOME outside HOME"
 grep -q 'docker-entrypoint.sh' "${DOCKERFILE}" || fail "Dockerfile must use docker-entrypoint.sh"
+grep -q '^USER bridge$' "${DOCKERFILE}" || fail "Dockerfile must run as USER bridge"
 ! grep -qE 'HOME=.*cursor\.com/install|install \| bash' "${DOCKERFILE}" \
   || fail "Dockerfile must not bake Cursor CLI install into image layers"
 
 grep -q 'CURSOR_CLI_HOME' "${ENTRY}" || fail "entrypoint must honor CURSOR_CLI_HOME"
 grep -q 'CURSOR_BRIDGE_INSTALL_CLI' "${ENTRY}" || fail "entrypoint must gate install"
-grep -q 'gosu' "${ENTRY}" || fail "entrypoint must drop privileges with gosu"
+! grep -q 'gosu' "${ENTRY}" || fail "entrypoint must not require gosu (runs as bridge)"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 
 mkdir -p "${tmp}/bin" "${tmp}/home" "${tmp}/cli"
-cat >"${tmp}/bin/fake-agent" <<'EOF'
+cat >"${tmp}/bin/fake-agent" <<'FAKE'
 #!/bin/sh
 echo fake-agent-ok
-EOF
+FAKE
 chmod +x "${tmp}/bin/fake-agent"
 
-# Existing agent wins: no network install.
 out="$(
   HOME="${tmp}/home" \
     CURSOR_CLI_HOME="${tmp}/cli" \
@@ -41,7 +41,6 @@ out="$(
 printf '%s\n' "${out}" | grep -q 'using agent at' || fail "expected agent resolution log"
 printf '%s\n' "${out}" | grep -q 'fake-agent-ok' || fail "expected fake agent to run"
 
-# Missing agent + install disabled → hard fail (no silent success).
 if HOME="${tmp}/home" \
   CURSOR_CLI_HOME="${tmp}/cli-empty" \
   CURSOR_BRIDGE_AGENT_BIN="${tmp}/cli-empty/missing" \

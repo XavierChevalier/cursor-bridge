@@ -10,7 +10,7 @@ RUN cargo build --release --locked
 
 FROM debian:bookworm-slim
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl gosu \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --create-home --uid 10001 --shell /usr/sbin/nologin bridge \
   && mkdir -p /opt/cursor-cli /workspace \
@@ -19,8 +19,7 @@ RUN apt-get update \
 COPY --from=build /src/target/release/cursor_bridge /usr/local/bin/cursor_bridge
 COPY --chmod=0755 bin/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-# Entrypoint starts as root only to chown volumes and gosu; the binary runs as bridge.
-USER root
+USER bridge
 WORKDIR /home/bridge
 ENV HOME=/home/bridge \
     CURSOR_BRIDGE_HOST=0.0.0.0 \
