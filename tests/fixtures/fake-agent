@@ -1,7 +1,25 @@
 #!/usr/bin/env bash
 # Deterministic Cursor CLI stand-in for contract tests.
-# Print mode: echo the prompt argument (last non-flag arg) to stdout.
 set -euo pipefail
+
+STATE_DIR="${FAKE_AGENT_STATE_DIR:-${CURSOR_BRIDGE_STATE_DIR:-/tmp/fake-agent-state}}"
+mkdir -p "${STATE_DIR}"
+
+if [[ "${1:-}" == "status" ]]; then
+  if [[ -f "${STATE_DIR}/logged_in" ]]; then
+    echo "Logged in as fake@example.com"
+  else
+    echo "Not logged in"
+  fi
+  exit 0
+fi
+
+if [[ "${1:-}" == "login" ]]; then
+  touch "${STATE_DIR}/logged_in"
+  echo "Open this URL to authenticate:"
+  echo "https://authenticator.cursor.sh/login?token=fake-test-token"
+  exit 0
+fi
 
 print_mode=0
 prompt=""
@@ -32,5 +50,5 @@ if [[ "${print_mode}" -eq 1 ]]; then
   exit 0
 fi
 
-echo "fake-agent: expected print mode (-p/--print); got: $*" >&2
+echo "fake-agent: unexpected args: $*" >&2
 exit 2

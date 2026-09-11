@@ -1,12 +1,15 @@
 //! Runtime configuration (from env in main; explicit in tests).
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub struct Config {
     pub api_key: String,
     pub agent_bin: String,
     pub workspace: String,
+    /// Directory for setup-complete flag and agent helper state.
+    pub state_dir: PathBuf,
     /// Bridge model id returned when the client omits `model`.
     pub default_model_id: String,
     /// Bridge model id → Cursor CLI `--model` value.
@@ -22,6 +25,7 @@ impl Config {
             api_key: "test-bridge-key".to_string(),
             agent_bin: "agent".to_string(),
             workspace: ".".to_string(),
+            state_dir: PathBuf::from("."),
             default_model_id: "cursor-auto".to_string(),
             models,
         }
@@ -34,15 +38,14 @@ impl Config {
             tracing::warn!("CURSOR_BRIDGE_API_KEY is empty; all authenticated routes will 401");
         }
 
-        let default_model_id = std::env::var("CURSOR_BRIDGE_MODEL_ID")
-            .unwrap_or_else(|_| "cursor-auto".into());
-        let default_cursor = std::env::var("CURSOR_BRIDGE_CURSOR_MODEL")
-            .unwrap_or_else(|_| "default".into());
+        let default_model_id =
+            std::env::var("CURSOR_BRIDGE_MODEL_ID").unwrap_or_else(|_| "cursor-auto".into());
+        let default_cursor =
+            std::env::var("CURSOR_BRIDGE_CURSOR_MODEL").unwrap_or_else(|_| "default".into());
 
         let mut models = BTreeMap::new();
         models.insert(default_model_id.clone(), default_cursor);
 
-        // Optional extras: "id:cursor-model,id2:cursor-model2"
         if let Ok(extra) = std::env::var("CURSOR_BRIDGE_EXTRA_MODELS") {
             for part in extra.split(',') {
                 let part = part.trim();
@@ -59,14 +62,24 @@ impl Config {
             }
         }
 
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/home/bridge".into());
+        let state_dir = std::env::var("CURSOR_BRIDGE_STATE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(home));
+
         Self {
             api_key,
             agent_bin: std::env::var("CURSOR_BRIDGE_AGENT_BIN").unwrap_or_else(|_| "agent".into()),
             workspace: std::env::var("CURSOR_BRIDGE_WORKSPACE")
                 .unwrap_or_else(|_| "./workspace".into()),
+            state_dir,
             default_model_id,
             models,
         }
+    }
+
+    pub fn setup_complete_flag(&self) -> PathBuf {
+        self.state_dir.join(".cursor-bridge-setup-complete")
     }
 
     pub fn resolve_model(&self, requested: &str) -> Option<&str> {

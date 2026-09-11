@@ -1,6 +1,6 @@
 # Build a minimal runtime image for Cursor Bridge.
-# The Cursor CLI is NOT baked in: mount or install `agent` at deploy time so
-# HOME bind-mounts cannot mask the binary.
+# The Cursor CLI is NOT baked into image layers: the entrypoint installs it into
+# a mounted volume under /opt/cursor-cli (never under HOME).
 
 FROM rust:1.98.1-bookworm AS build
 WORKDIR /src
@@ -10,18 +10,26 @@ RUN cargo build --release --locked
 
 FROM debian:bookworm-slim
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && apt-get install -y --no-install-recommends ca-certificates curl gosu \
   && rm -rf /var/lib/apt/lists/* \
-  && useradd --create-home --uid 10001 --shell /usr/sbin/nologin bridge
+  && useradd --create-home --uid 10001 --shell /usr/sbin/nologin bridge \
+  && mkdir -p /opt/cursor-cli /workspace \
+  && chown -R bridge:bridge /opt/cursor-cli /workspace /home/bridge
 
 COPY --from=build /src/target/release/cursor_bridge /usr/local/bin/cursor_bridge
+COPY --chmod=0755 bin/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-USER bridge
+# Entrypoint starts as root only to chown volumes and gosu; the binary runs as bridge.
+USER root
 WORKDIR /home/bridge
-ENV CURSOR_BRIDGE_HOST=0.0.0.0 \
+ENV HOME=/home/bridge \
+    CURSOR_BRIDGE_HOST=0.0.0.0 \
     CURSOR_BRIDGE_PORT=8787 \
     CURSOR_BRIDGE_WORKSPACE=/workspace \
-    CURSOR_BRIDGE_AGENT_BIN=/usr/local/bin/agent
+    CURSOR_CLI_HOME=/opt/cursor-cli \
+    CURSOR_BRIDGE_AGENT_BIN=/opt/cursor-cli/.local/bin/agent \
+    CURSOR_BRIDGE_INSTALL_CLI=1
 
 EXPOSE 8787
-ENTRYPOINT ["/usr/local/bin/cursor_bridge"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["/usr/local/bin/cursor_bridge"]

@@ -1,6 +1,6 @@
 # Cursor Bridge
 
-**Status:** Phase 1 gateway implemented in Rust (OpenAI-compatible HTTP + fake-agent contracts). Open WebUI / Computer E2E and live Cursor still ahead (see [docs/roadmap.md](docs/roadmap.md)).
+**Status:** Phase 1–2 gateway in Rust with Docker Hub publish CI. Image: `xavierchevalier/cursor-bridge`. See [docs/deploy.md](docs/deploy.md) and [docs/roadmap.md](docs/roadmap.md).
 
 Cursor Bridge is an **independent, OpenAI-compatible HTTP gateway** in front of the [Cursor CLI](https://cursor.com/docs/cli/using) (`agent`), aimed at **Cursor Auto** (and other selectable Cursor models).
 
@@ -93,3 +93,12 @@ This repository currently holds **product and design documentation** only. No se
 ## License
 
 MIT for this repository's files. See [LICENSE](LICENSE). Cursor and third-party clients remain under their own terms.
+
+
+## Docker image
+
+```bash
+docker pull xavierchevalier/cursor-bridge:latest
+```
+
+CI pushes `latest` (main), `sha-<short>`, and semver tags on `v*`. Requires Docker Hub secrets `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` on the GitHub repo.

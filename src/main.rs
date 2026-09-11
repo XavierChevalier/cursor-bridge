@@ -20,7 +20,7 @@ async fn main() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(8787);
 
-    let app = cursor_bridge::app(config);
+    let app = cursor_bridge::app_async(config).await;
     let addr: SocketAddr = format!("{host}:{port}")
         .parse()
         .expect("invalid CURSOR_BRIDGE_HOST/PORT");

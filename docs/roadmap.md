@@ -18,6 +18,9 @@ Documentation-first repository. Implementation order below is intentional.
 
 ## Phase 2: Production hardening
 
+- [x] Docker Hub publish CI (`xavierchevalier/cursor-bridge`)
+- [x] Entrypoint installs CLI into `/opt/cursor-cli` volume (not HOME)
+
 - [x] Explicit model map (Auto + allowlisted Cursor models)
 - [x] Conversation / session policy that avoids assistant-text replay (latest user turn only)
 - [x] Workspace path jail documentation + optional deny patterns (see [deploy.md](deploy.md))
@@ -31,6 +34,7 @@ Documentation-first repository. Implementation order below is intentional.
 - [x] Clear errors when Cursor is not logged in
 - [ ] Optional request size / rate limits
 - [ ] Computer consumer E2E compose (same OpenAI path)
+
 ## Phase 4: Stretch
 
 - [ ] Better mapping of tool events into OpenAI-compatible streams (if clients benefit)

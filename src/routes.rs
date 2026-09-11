@@ -1,11 +1,11 @@
-//! HTTP routes for the OpenAI-compatible bridge.
+//! HTTP routes for the OpenAI-compatible bridge and one-shot setup UI.
 
 use axum::{
     body::Body,
     extract::State,
     http::{header::AUTHORIZATION, HeaderMap, HeaderValue, Request, StatusCode},
     middleware::{from_fn_with_state, Next},
-    response::{IntoResponse, Response},
+    response::{Html, IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -13,26 +13,214 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::agent;
-use crate::Config;
+use crate::setup::{mark_setup_complete, AppState};
 
-pub fn router(config: Config) -> Router {
-    let protected = Router::new()
+pub fn router(state: AppState) -> Router {
+    let protected_api = Router::new()
         .route("/v1/models", get(list_models))
         .route("/v1/chat/completions", post(chat_completions))
-        .layer(from_fn_with_state(config.clone(), require_bearer));
+        .layer(from_fn_with_state(state.clone(), require_bearer));
+
+    let protected_setup = Router::new()
+        .route("/", get(setup_page))
+        .route("/setup/login", post(setup_login))
+        .route("/setup/status", get(setup_status))
+        .layer(from_fn_with_state(state.clone(), require_bearer));
 
     Router::new()
         .route("/healthz", get(healthz))
-        .merge(protected)
-        .with_state(config)
+        .merge(protected_api)
+        .merge(protected_setup)
+        .with_state(state)
 }
 
 async fn healthz() -> Json<Value> {
     Json(json!({ "ok": true }))
 }
 
-async fn list_models(State(config): State<Config>) -> Json<Value> {
-    let data: Vec<Value> = config
+async fn setup_page(State(state): State<AppState>) -> Response {
+    if !state.setup.is_enabled() {
+        return (
+            StatusCode::GONE,
+            Json(json!({
+                "error": {
+                    "message": "setup UI is disabled (Cursor already logged in, or setup completed)",
+                    "type": "setup_complete"
+                }
+            })),
+        )
+            .into_response();
+    }
+
+    Html(SETUP_HTML).into_response()
+}
+
+async fn setup_login(State(state): State<AppState>) -> Response {
+    if !state.setup.is_enabled() {
+        return (
+            StatusCode::GONE,
+            Json(json!({
+                "error": {
+                    "message": "setup UI is disabled",
+                    "type": "setup_complete"
+                }
+            })),
+        )
+            .into_response();
+    }
+
+    match agent::login_url(&state.config).await {
+        Ok(login_url) => {
+            // Fake/real login may already be complete; refresh status.
+            if let Ok(status) = agent::status(&state.config).await {
+                if status.logged_in {
+                    let _ = mark_setup_complete(&state);
+                }
+            }
+            Json(json!({
+                "login_url": login_url,
+                "setup_enabled": state.setup.is_enabled()
+            }))
+            .into_response()
+        }
+        Err(err) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({
+                "error": {
+                    "message": sanitize_agent_error(&err.to_string()),
+                    "type": "server_error"
+                }
+            })),
+        )
+            .into_response(),
+    }
+}
+
+async fn setup_status(State(state): State<AppState>) -> Response {
+    if !state.setup.is_enabled() {
+        return Json(json!({
+            "logged_in": true,
+            "setup_enabled": false,
+            "summary": "setup complete"
+        }))
+        .into_response();
+    }
+
+    match agent::status(&state.config).await {
+        Ok(status) => {
+            if status.logged_in {
+                let _ = mark_setup_complete(&state);
+            }
+            Json(json!({
+                "logged_in": status.logged_in,
+                "setup_enabled": state.setup.is_enabled(),
+                "summary": status.summary
+            }))
+            .into_response()
+        }
+        Err(err) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({
+                "error": {
+                    "message": sanitize_agent_error(&err.to_string()),
+                    "type": "server_error"
+                }
+            })),
+        )
+            .into_response(),
+    }
+}
+
+const SETUP_HTML: &str = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cursor Bridge setup</title>
+  <style>
+    :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.45; }
+    button { font: inherit; padding: 0.5rem 1rem; cursor: pointer; }
+    input { font: inherit; width: 100%; padding: 0.4rem; box-sizing: border-box; }
+    .row { margin: 1rem 0; }
+    #url a { word-break: break-all; }
+    .muted { opacity: 0.75; font-size: 0.95rem; }
+    .err { color: #b00020; }
+  </style>
+</head>
+<body>
+  <h1>Cursor Bridge setup</h1>
+  <p class="muted">One-time Cursor CLI login. This page disables itself after success.</p>
+  <div class="row">
+    <label for="key">Bridge API key</label>
+    <input id="key" type="password" autocomplete="current-password" placeholder="CURSOR_BRIDGE_API_KEY" />
+  </div>
+  <div class="row">
+    <button id="login" type="button">Start login</button>
+  </div>
+  <p id="status" class="muted">Not started.</p>
+  <p id="url"></p>
+  <p id="err" class="err"></p>
+  <script>
+    const keyEl = document.getElementById('key');
+    const statusEl = document.getElementById('status');
+    const urlEl = document.getElementById('url');
+    const errEl = document.getElementById('err');
+    const saved = sessionStorage.getItem('bridgeKey');
+    if (saved) keyEl.value = saved;
+
+    function authHeaders() {
+      const key = keyEl.value.trim();
+      sessionStorage.setItem('bridgeKey', key);
+      return { 'Authorization': 'Bearer ' + key };
+    }
+
+    async function refreshStatus() {
+      const res = await fetch('/setup/status', { headers: authHeaders() });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error?.message || res.statusText);
+      statusEl.textContent = body.logged_in
+        ? ('Logged in. Setup ' + (body.setup_enabled ? 'still open' : 'disabled.'))
+        : (body.summary || 'Not logged in');
+      if (body.logged_in && body.setup_enabled === false) {
+        statusEl.textContent = 'Setup complete. This UI is gone; use /v1 only.';
+        document.getElementById('login').disabled = true;
+      }
+      return body;
+    }
+
+    document.getElementById('login').onclick = async () => {
+      errEl.textContent = '';
+      urlEl.textContent = '';
+      try {
+        statusEl.textContent = 'Starting agent login…';
+        const res = await fetch('/setup/login', { method: 'POST', headers: authHeaders() });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error?.message || res.statusText);
+        if (body.login_url) {
+          urlEl.innerHTML = 'Open this link to finish login: <a href="' + body.login_url + '" target="_blank" rel="noopener">' + body.login_url + '</a>';
+        }
+        await refreshStatus();
+        const timer = setInterval(async () => {
+          try {
+            const st = await refreshStatus();
+            if (st.logged_in && st.setup_enabled === false) clearInterval(timer);
+          } catch (e) { /* keep polling */ }
+        }, 2000);
+      } catch (e) {
+        errEl.textContent = String(e.message || e);
+      }
+    };
+
+    keyEl.addEventListener('change', () => refreshStatus().catch(() => {}));
+  </script>
+</body>
+</html>
+"#;
+
+async fn list_models(State(state): State<AppState>) -> Json<Value> {
+    let data: Vec<Value> = state
+        .config
         .models
         .keys()
         .map(|id| {
@@ -65,9 +253,10 @@ struct ChatRequest {
 }
 
 async fn chat_completions(
-    State(config): State<Config>,
+    State(state): State<AppState>,
     Json(body): Json<ChatRequest>,
 ) -> Response {
+    let config = &state.config;
     let prompt = match latest_user_prompt(&body.messages) {
         Some(text) => text,
         None => {
@@ -106,7 +295,7 @@ async fn chat_completions(
         body.model.clone()
     };
 
-    let content = match agent::print_turn(&config, &cursor_model, &prompt).await {
+    let content = match agent::print_turn(config, &cursor_model, &prompt).await {
         Ok(content) => content,
         Err(err) => {
             let message = sanitize_agent_error(&err.to_string());
@@ -198,12 +387,11 @@ fn latest_user_prompt(messages: &[ChatMessage]) -> Option<String> {
 }
 
 fn sanitize_agent_error(raw: &str) -> String {
-    // Never echo bearer material if it somehow appears in process errors.
     raw.replace("Bearer ", "Bearer [redacted] ")
 }
 
 async fn require_bearer(
-    State(config): State<Config>,
+    State(state): State<AppState>,
     request: Request<Body>,
     next: Next,
 ) -> Response {
@@ -212,7 +400,7 @@ async fn require_bearer(
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
-        .is_some_and(|token| token == config.api_key);
+        .is_some_and(|token| token == state.config.api_key);
 
     if authorized {
         next.run(request).await
