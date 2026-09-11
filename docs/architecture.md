@@ -59,11 +59,11 @@ OpenAI clients often send the **full message history** each request. Cursor may 
 
 Bridge must pick a policy and document it:
 
-| Policy | Pros | Cons |
-| ------ | ---- | ---- |
-| Stateless CLI turn + client history only | Predictable; no sticky sessions | Larger prompts; weaker native Cursor memory |
-| Sticky Cursor session per `conversation_id` | Better agent continuity | Must avoid replaying prior assistant text into the HTTP body |
-| Hybrid (sticky session, send only latest user turn) | Best of both when the client cooperates | Breaks clients that expect pure OpenAI semantics |
+| Policy                                              | Pros                                    | Cons                                                         |
+| --------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------ |
+| Stateless CLI turn + client history only            | Predictable; no sticky sessions         | Larger prompts; weaker native Cursor memory                  |
+| Sticky Cursor session per `conversation_id`         | Better agent continuity                 | Must avoid replaying prior assistant text into the HTTP body |
+| Hybrid (sticky session, send only latest user turn) | Best of both when the client cooperates | Breaks clients that expect pure OpenAI semantics             |
 
 The implementation should default to a policy that **does not concatenate previous assistant replies into the new completion** (a known footgun when resuming native Cursor ACP sessions naively).
 

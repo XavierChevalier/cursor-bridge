@@ -1,6 +1,6 @@
 # Cursor Bridge
 
-**Status:** design documentation. Implementation is not shipped yet.
+**Status:** Phase 1 gateway implemented in Rust (OpenAI-compatible HTTP + fake-agent contracts). Open WebUI / Computer E2E and live Cursor still ahead (see [docs/roadmap.md](docs/roadmap.md)).
 
 Cursor Bridge is an **independent, OpenAI-compatible HTTP gateway** in front of the [Cursor CLI](https://cursor.com/docs/cli/using) (`agent`), aimed at **Cursor Auto** (and other selectable Cursor models).
 
@@ -58,6 +58,16 @@ Bridge keeps **one** integration surface (`/v1/...`) and lets you choose the UI.
 | [docs/security.md](docs/security.md)                         | Threat model, auth, secrets handling                                     |
 | [docs/testing.md](docs/testing.md)                           | FIRST pyramid: fake agent, Open WebUI / Computer E2E, live Cursor opt-in |
 | [docs/roadmap.md](docs/roadmap.md)                           | Planned implementation phases                                            |
+
+## Development
+
+```bash
+cp .env.example .env   # set CURSOR_BRIDGE_API_KEY locally
+cargo test --tests
+cargo run
+```
+
+Contract tests spawn `tests/fixtures/fake-agent` (no Cursor cloud, no secrets). See [docs/testing.md](docs/testing.md).
 
 ## Configuration
 

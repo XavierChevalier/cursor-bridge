@@ -4,12 +4,12 @@ Cursor Bridge aims for **practical compatibility** with self-hosted chat UIs, no
 
 ## Planned endpoints
 
-| Method | Path | Purpose |
-| ------ | ---- | ------- |
-| `GET` | `/v1/models` | List logical models the bridge exposes |
-| `GET` | `/v1/models/{id}` | Model metadata |
-| `POST` | `/v1/chat/completions` | Chat turn (sync or SSE stream) |
-| `GET` | `/healthz` | Liveness (no secrets in response) |
+| Method | Path                   | Purpose                                |
+| ------ | ---------------------- | -------------------------------------- |
+| `GET`  | `/v1/models`           | List logical models the bridge exposes |
+| `GET`  | `/v1/models/{id}`      | Model metadata                         |
+| `POST` | `/v1/chat/completions` | Chat turn (sync or SSE stream)         |
+| `GET`  | `/healthz`             | Liveness (no secrets in response)      |
 
 Out of scope for the first versions unless explicitly scheduled: Assistants API, Responses API, embeddings, images, audio, fine-tuning, organization APIs.
 
@@ -27,10 +27,10 @@ Authorization: Bearer <CURSOR_BRIDGE_API_KEY>
 
 Default mapping (names are illustrative; exact ids will be fixed in code):
 
-| Bridge `model` id | Cursor side | Notes |
-| ----------------- | ----------- | ----- |
-| `cursor-auto` | Auto / `default` | Recommended default |
-| `cursor/<cursor-model-id>` | Pass-through | Optional escape hatch |
+| Bridge `model` id          | Cursor side      | Notes                 |
+| -------------------------- | ---------------- | --------------------- |
+| `cursor-auto`              | Auto / `default` | Recommended default   |
+| `cursor/<cursor-model-id>` | Pass-through     | Optional escape hatch |
 
 `GET /v1/models` should only list models the operator enabled.
 

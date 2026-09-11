@@ -9,13 +9,13 @@ Tests follow **FIRST** and stay honest: no tautological asserts, no mocking the 
 
 ## FIRST
 
-| Letter | Rule for this repo |
-| ------ | ------------------ |
-| **F**ast | Default CI suite runs without Cursor cloud or heavy UI images when possible. Docker consumer suites may be slower and opt-in. |
-| **I**ndependent | Each case gets its own temp dir, free ports, and process tree. No shared global bridge instance across cases. |
-| **R**epeatable | No dependency on a personal lab hostname, LAN IP, or checked-in credential. Same result on a clean machine. |
+| Letter              | Rule for this repo                                                                                                                |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **F**ast            | Default CI suite runs without Cursor cloud or heavy UI images when possible. Docker consumer suites may be slower and opt-in.     |
+| **I**ndependent     | Each case gets its own temp dir, free ports, and process tree. No shared global bridge instance across cases.                     |
+| **R**epeatable      | No dependency on a personal lab hostname, LAN IP, or checked-in credential. Same result on a clean machine.                       |
 | **S**elf-validating | Exit code + assertions on HTTP status, JSON fields, reassembled SSE text, or client API responses. No manual inspection required. |
-| **T**imely | Contract tests land with the HTTP server (Phase 1). Consumer E2E lands with client recipes (Phase 3). |
+| **T**imely          | Contract tests land with the HTTP server (Phase 1). Consumer E2E lands with client recipes (Phase 3).                             |
 
 ## What we refuse
 
@@ -27,10 +27,10 @@ Tests follow **FIRST** and stay honest: no tautological asserts, no mocking the 
 
 ## Collaborators: fakes vs live Cursor
 
-| Collaborator | Role | When |
-| ------------ | ---- | ---- |
-| **Fake `agent`** | Real executable on `PATH` / configured bin path. Speaks a minimal Cursor-like ACP or `stream-json` protocol. Returns deterministic text (e.g. `OK`). | Default CI and merge gate |
-| **Live Cursor CLI** | Real `agent` after `agent login` (or runtime-injected key never committed to git). | Optional job / manual; never required to merge |
+| Collaborator        | Role                                                                                                                                                 | When                                           |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| **Fake `agent`**    | Real executable on `PATH` / configured bin path. Speaks a minimal Cursor-like ACP or `stream-json` protocol. Returns deterministic text (e.g. `OK`). | Default CI and merge gate                      |
+| **Live Cursor CLI** | Real `agent` after `agent login` (or runtime-injected key never committed to git).                                                                   | Optional job / manual; never required to merge |
 
 The fake is a **test double at the process boundary**, not a mock inside the bridge. The bridge under test is always the real server.
 
@@ -80,10 +80,10 @@ This catches base-URL and streaming mismatches before pulling UI images.
 
 Real images, real configuration APIs, **fake agent** behind the bridge (no Cursor cloud).
 
-| Client | Proof |
-| ------ | ----- |
+| Client         | Proof                                                                                                                       |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | **Open WebUI** | Create an OpenAI-compatible connection to the bridge `/v1`, send a chat, assert the assistant message body matches the fake |
-| **Computer** | Use Computer's **OpenAI-compatible connection** (not the native Cursor agent profile). Same content assertion |
+| **Computer**   | Use Computer's **OpenAI-compatible connection** (not the native Cursor agent profile). Same content assertion               |
 
 Harness rules:
 
@@ -112,23 +112,23 @@ Same harness as layers 1–3 with `CURSOR_BRIDGE_AGENT_BIN` pointing at a real C
 
 Suggested taxonomy (align names with the eventual test runner):
 
-| Kind | Intent |
-| ---- | ------ |
-| `*.unit.test.*` | Pure helpers (parsing SSE, model map) with real inputs/outputs |
-| `*.contract.test.*` | OpenAI wire + fake agent (layers 1–2) |
-| `*.integration.test.*` | Bridge process wired with fakes, no UI images |
-| `*.e2e.test.*` | Open WebUI / Computer containers (layer 3) |
-| `*.live.test.*` | Real Cursor (layer 4), skipped by default |
+| Kind                   | Intent                                                         |
+| ---------------------- | -------------------------------------------------------------- |
+| `*.unit.test.*`        | Pure helpers (parsing SSE, model map) with real inputs/outputs |
+| `*.contract.test.*`    | OpenAI wire + fake agent (layers 1–2)                          |
+| `*.integration.test.*` | Bridge process wired with fakes, no UI images                  |
+| `*.e2e.test.*`         | Open WebUI / Computer containers (layer 3)                     |
+| `*.live.test.*`        | Real Cursor (layer 4), skipped by default                      |
 
 Assert **observable behaviour** (status, body, stream assembly). Do not assert internal private function call counts.
 
 ## CI policy
 
-| Suite | Merge gate | Needs |
-| ----- | ---------- | ----- |
-| Layers 1–2 | Yes | Fake agent only |
-| Layer 3 | Yes if Docker available in CI; otherwise nightly + local | Docker images for Open WebUI and Computer |
-| Layer 4 | No | Operator-provided Cursor auth at runtime |
+| Suite      | Merge gate                                               | Needs                                     |
+| ---------- | -------------------------------------------------------- | ----------------------------------------- |
+| Layers 1–2 | Yes                                                      | Fake agent only                           |
+| Layer 3    | Yes if Docker available in CI; otherwise nightly + local | Docker images for Open WebUI and Computer |
+| Layer 4    | No                                                       | Operator-provided Cursor auth at runtime  |
 
 ## Implementation order
 

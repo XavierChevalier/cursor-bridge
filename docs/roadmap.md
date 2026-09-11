@@ -2,7 +2,7 @@
 
 Documentation-first repository. Implementation order below is intentional.
 
-## Phase 0: Docs (current)
+## Phase 0: Docs
 
 - [x] Product README and licence
 - [x] Architecture, compatibility, clients, security, testing notes
@@ -10,11 +10,11 @@ Documentation-first repository. Implementation order below is intentional.
 
 ## Phase 1: Minimal gateway
 
-- [ ] HTTP server: `/healthz`, `/v1/models`, `/v1/chat/completions`
-- [ ] Bearer auth for the bridge API key
-- [ ] One-shot Cursor turn via CLI (`stream-json` or ACP) for text-only replies
-- [ ] SSE streaming compatible with common Open WebUI settings
-- [ ] Automated tests with a fake `agent` binary (no network, no real credentials); see [testing.md](testing.md)
+- [x] HTTP server: `/healthz`, `/v1/models`, `/v1/chat/completions`
+- [x] Bearer auth for the bridge API key
+- [x] One-shot Cursor turn via CLI print mode (`agent -p`) for text-only replies
+- [x] SSE streaming compatible with common Open WebUI settings
+- [x] Automated tests with a fake `agent` binary (no network, no real credentials); see [testing.md](testing.md)
 
 ## Phase 2: Production hardening
 

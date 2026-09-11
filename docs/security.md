@@ -8,13 +8,13 @@ Treat exposure the same way you would treat an SSH port limited to one directory
 
 ## Trust boundaries
 
-| Boundary | Control |
-| -------- | ------- |
+| Boundary          | Control                                                                                  |
+| ----------------- | ---------------------------------------------------------------------------------------- |
 | Internet → bridge | Do not publish publicly without an authenticating proxy and TLS. Default bind: loopback. |
-| Client → bridge | Bearer `CURSOR_BRIDGE_API_KEY` |
-| Bridge → Cursor | `agent login` or operator-managed env at runtime (never committed) |
-| Agent → files | Mount / configure a dedicated workspace only |
-| Agent → secrets | Deny lists, no unrelated secrets in the process environment |
+| Client → bridge   | Bearer `CURSOR_BRIDGE_API_KEY`                                                           |
+| Bridge → Cursor   | `agent login` or operator-managed env at runtime (never committed)                       |
+| Agent → files     | Mount / configure a dedicated workspace only                                             |
+| Agent → secrets   | Deny lists, no unrelated secrets in the process environment                              |
 
 ## Secrets handling
 

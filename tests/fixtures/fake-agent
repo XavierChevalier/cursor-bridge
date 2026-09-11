@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Deterministic Cursor CLI stand-in for contract tests.
+# Print mode: echo the prompt argument (last non-flag arg) to stdout.
+set -euo pipefail
+
+print_mode=0
+prompt=""
+prev=""
+for arg in "$@"; do
+  case "${arg}" in
+    -p | --print)
+      print_mode=1
+      ;;
+    --output-format | --model)
+      prev="${arg}"
+      ;;
+    text | default | *)
+      if [[ "${prev}" == "--output-format" || "${prev}" == "--model" ]]; then
+        prev=""
+        continue
+      fi
+      if [[ "${arg}" != -* ]]; then
+        prompt="${arg}"
+      fi
+      prev=""
+      ;;
+  esac
+done
+
+if [[ "${print_mode}" -eq 1 ]]; then
+  printf '%s' "${prompt}"
+  exit 0
+fi
+
+echo "fake-agent: expected print mode (-p/--print); got: $*" >&2
+exit 2
