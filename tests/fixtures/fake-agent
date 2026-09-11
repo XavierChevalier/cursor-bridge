@@ -28,9 +28,11 @@ print_mode=0
 prompt=""
 prev=""
 for arg in "$@"; do
-  case "${arg}" in
+    case "${arg}" in
     -p | --print)
       print_mode=1
+      ;;
+    --trust | -f | --yolo)
       ;;
     --output-format | --model)
       prev="${arg}"

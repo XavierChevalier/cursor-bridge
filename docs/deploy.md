@@ -4,7 +4,8 @@
 
 Point `CURSOR_BRIDGE_WORKSPACE` at a dedicated directory that contains only
 projects you accept the agent editing. The bridge sets that path as the
-Cursor CLI working directory for print-mode turns.
+Cursor CLI working directory for print-mode turns and passes `--trust` so
+non-interactive HTTP turns do not hang on the workspace-trust prompt.
 
 Do not mount your entire home directory, secrets stores, or unrelated
 infrastructure trees.

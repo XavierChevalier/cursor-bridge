@@ -60,8 +60,11 @@ pub async fn print_turn(
     cursor_model: &str,
     prompt: &str,
 ) -> Result<String, AgentError> {
+    // Non-interactive HTTP turns cannot answer the CLI workspace-trust prompt.
+    // Workspace is operator-chosen (CURSOR_BRIDGE_WORKSPACE); trust it explicitly.
     let output = agent_command(config)
         .arg("-p")
+        .arg("--trust")
         .arg("--output-format")
         .arg("text")
         .arg("--model")

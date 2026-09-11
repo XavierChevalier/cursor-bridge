@@ -36,7 +36,7 @@ Treat exposure the same way you would treat an SSH port limited to one directory
 
 ## Tool approval reality
 
-OpenAI Chat Completions clients generally cannot render Cursor permission prompts. Bridge turns will likely run with tools auto-approved inside the workspace. That is a product trade-off, not a free lunch. Constrain the workspace and network egress accordingly.
+OpenAI Chat Completions clients generally cannot render Cursor permission prompts. Bridge print turns pass `--trust` for the configured workspace and typically run with tools usable inside that jail. That is a product trade-off, not a free lunch. Constrain the workspace and network egress accordingly.
 
 ## Reporting issues
 
