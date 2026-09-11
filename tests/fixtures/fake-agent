@@ -15,9 +15,12 @@ if [[ "${1:-}" == "status" ]]; then
 fi
 
 if [[ "${1:-}" == "login" ]]; then
-  touch "${STATE_DIR}/logged_in"
   echo "Open this URL to authenticate:"
   echo "https://authenticator.cursor.sh/login?token=fake-test-token"
+  # Stay alive until credentials land (real CLI waits for browser OAuth).
+  while [[ ! -f "${STATE_DIR}/logged_in" ]]; do
+    sleep 0.05
+  done
   exit 0
 fi
 

@@ -10,27 +10,13 @@ pub use setup::{AppOptions, AppState};
 
 /// Build the HTTP application router (production defaults).
 pub fn app(config: Config) -> axum::Router {
-    // Tests that need async build should call app_with_options; production main awaits build_state.
-    // For sync `app()` used by older tests: enable setup only if flag missing (optimistic).
-    let flag_done = config.setup_complete_flag().is_file();
-    let state = AppState {
-        setup: setup::SetupGate::new(!flag_done),
-        config,
-    };
+    let state = setup::app_state_for_tests(config, false);
     routes::router(state)
 }
 
 /// Build router with explicit setup options (contract tests).
 pub fn app_with_options(config: Config, options: AppOptions) -> axum::Router {
-    let enabled = if options.force_setup {
-        true
-    } else {
-        !config.setup_complete_flag().is_file()
-    };
-    let state = AppState {
-        setup: setup::SetupGate::new(enabled),
-        config,
-    };
+    let state = setup::app_state_for_tests(config, options.force_setup);
     routes::router(state)
 }
 

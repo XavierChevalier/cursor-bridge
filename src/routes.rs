@@ -70,13 +70,22 @@ async fn setup_login(State(state): State<AppState>) -> Response {
             .into_response();
     }
 
-    match agent::login_url(&state.config).await {
-        Ok(login_url) => {
-            if let Ok(status) = agent::status(&state.config).await {
-                if status.logged_in {
-                    let _ = mark_setup_complete(&state);
-                }
-            }
+    // Reuse an in-flight login so refreshing the page does not kill OAuth.
+    {
+        let guard = state.login.lock().await;
+        if let Some(proc) = guard.as_ref() {
+            return Json(json!({
+                "login_url": proc.url,
+                "setup_enabled": state.setup.is_enabled()
+            }))
+            .into_response();
+        }
+    }
+
+    match agent::start_login(&state.config).await {
+        Ok(proc) => {
+            let login_url = proc.url.clone();
+            *state.login.lock().await = Some(proc);
             Json(json!({
                 "login_url": login_url,
                 "setup_enabled": state.setup.is_enabled()
@@ -109,7 +118,7 @@ async fn setup_status(State(state): State<AppState>) -> Response {
     match agent::status(&state.config).await {
         Ok(status) => {
             if status.logged_in {
-                let _ = mark_setup_complete(&state);
+                let _ = mark_setup_complete(&state).await;
             }
             Json(json!({
                 "logged_in": status.logged_in,
@@ -179,7 +188,7 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
       errEl.textContent = '';
       urlEl.textContent = '';
       try {
-        statusEl.textContent = 'Starting agent login…';
+        statusEl.textContent = 'Starting agent login… keep this page open until status flips.';
         const res = await fetch('/setup/login', { method: 'POST' });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error?.message || res.statusText);

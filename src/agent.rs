@@ -4,7 +4,7 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
+use tokio::process::{Child, Command};
 use tokio::time::timeout;
 
 use crate::Config;
@@ -29,9 +29,24 @@ pub struct AgentStatus {
     pub summary: String,
 }
 
+/// A running `agent login` that must stay alive until the browser OAuth finishes.
+pub struct LoginProcess {
+    pub url: String,
+    child: Child,
+}
+
+impl LoginProcess {
+    pub async fn abort(mut self) {
+        let _ = self.child.kill().await;
+        let _ = self.child.wait().await;
+    }
+}
+
 fn agent_command(config: &Config) -> Command {
     let mut cmd = Command::new(&config.agent_bin);
+    // Credentials must land in the persisted state dir / HOME, never under the CLI volume.
     cmd.current_dir(&config.workspace)
+        .env("HOME", &config.state_dir)
         .env("NO_OPEN_BROWSER", "1")
         .env("FAKE_AGENT_STATE_DIR", &config.state_dir)
         .env("CURSOR_BRIDGE_STATE_DIR", &config.state_dir)
@@ -103,25 +118,28 @@ pub async fn status(config: &Config) -> Result<AgentStatus, AgentError> {
     })
 }
 
-/// Start `agent login` and return the first https URL printed.
-pub async fn login_url(config: &Config) -> Result<String, AgentError> {
+/// Start `agent login`, capture the first https URL, and keep the process running.
+pub async fn start_login(config: &Config) -> Result<LoginProcess, AgentError> {
     let mut child = agent_command(config)
         .arg("login")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .kill_on_drop(true)
         .spawn()?;
 
-    let stdout = child.stdout.take().ok_or_else(|| {
-        std::io::Error::other("agent login stdout missing")
-    })?;
-    let stderr = child.stderr.take().ok_or_else(|| {
-        std::io::Error::other("agent login stderr missing")
-    })?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| std::io::Error::other("agent login stdout missing"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| std::io::Error::other("agent login stderr missing"))?;
 
     let mut lines = BufReader::new(stdout).lines();
     let mut err_lines = BufReader::new(stderr).lines();
 
-    let found = timeout(Duration::from_secs(20), async {
+    let found = timeout(Duration::from_secs(30), async {
         loop {
             tokio::select! {
                 line = lines.next_line() => {
@@ -142,19 +160,26 @@ pub async fn login_url(config: &Config) -> Result<String, AgentError> {
     })
     .await;
 
-    // Prefer a clean exit; kill only if still running after a short grace period.
-    match timeout(Duration::from_secs(2), child.wait()).await {
-        Ok(_) => {}
+    // Keep draining pipes so a chatty login child cannot block on a full buffer.
+    tokio::spawn(async move {
+        while let Ok(Some(_)) = lines.next_line().await {}
+    });
+    tokio::spawn(async move {
+        while let Ok(Some(_)) = err_lines.next_line().await {}
+    });
+
+    match found {
+        Ok(Ok(url)) => Ok(LoginProcess { url, child }),
+        Ok(Err(_)) => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            Err(AgentError::LoginUrlMissing)
+        }
         Err(_) => {
             let _ = child.kill().await;
             let _ = child.wait().await;
+            Err(AgentError::LoginUrlTimeout)
         }
-    }
-
-    match found {
-        Ok(Ok(url)) => Ok(url),
-        Ok(Err(_)) => Err(AgentError::LoginUrlMissing),
-        Err(_) => Err(AgentError::LoginUrlTimeout),
     }
 }
 

@@ -1,6 +1,7 @@
 //! One-shot setup UI: open during first login, then gone; /v1 stays Bearer-gated.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use axum::body::Body;
 use http_body_util::BodyExt;
@@ -41,7 +42,7 @@ async fn setup_page_is_open_without_bearer_during_setup() {
 }
 
 #[tokio::test]
-async fn setup_login_returns_url_then_routes_go_away() {
+async fn setup_login_keeps_process_alive_until_status_flips() {
     let state = tempfile::tempdir().unwrap();
     let app = app_with_state_dir(state.path(), true);
 
@@ -67,6 +68,25 @@ async fn setup_login_returns_url_then_routes_go_away() {
     let json: serde_json::Value = serde_json::from_slice(&login_body).unwrap();
     let url = json["login_url"].as_str().expect("login_url");
     assert!(url.starts_with("https://"), "url={url}");
+
+    // Still logged out until OAuth completes (login child must still be running).
+    let pending = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/setup/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let pending_json: serde_json::Value =
+        serde_json::from_slice(&pending.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(pending_json["logged_in"], false, "body={pending_json}");
+
+    // Simulate browser OAuth completing while agent login is still alive.
+    std::fs::write(state.path().join("logged_in"), b"1").unwrap();
+    tokio::time::sleep(Duration::from_millis(150)).await;
 
     let status = app
         .clone()
@@ -96,7 +116,6 @@ async fn setup_login_returns_url_then_routes_go_away() {
     assert_eq!(gone.status(), axum::http::StatusCode::GONE);
     assert!(state.path().join(".cursor-bridge-setup-complete").is_file());
 
-    // /v1 still requires the bridge API key after setup.
     let unauthorized = app
         .oneshot(
             axum::http::Request::builder()

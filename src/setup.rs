@@ -3,7 +3,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::agent;
+use tokio::sync::Mutex;
+
+use crate::agent::{self, LoginProcess};
 use crate::Config;
 
 #[derive(Clone)]
@@ -31,6 +33,8 @@ impl SetupGate {
 pub struct AppState {
     pub config: Config,
     pub setup: SetupGate,
+    /// Active `agent login` child; must stay alive until OAuth completes.
+    pub login: Arc<Mutex<Option<LoginProcess>>>,
 }
 
 pub struct AppOptions {
@@ -75,12 +79,29 @@ pub async fn build_state(config: Config, options: AppOptions) -> AppState {
     AppState {
         config,
         setup: SetupGate::new(enabled),
+        login: Arc::new(Mutex::new(None)),
     }
 }
 
-pub fn mark_setup_complete(state: &AppState) -> std::io::Result<()> {
+pub fn app_state_for_tests(config: Config, force_setup: bool) -> AppState {
+    let enabled = if force_setup {
+        true
+    } else {
+        !config.setup_complete_flag().is_file()
+    };
+    AppState {
+        config,
+        setup: SetupGate::new(enabled),
+        login: Arc::new(Mutex::new(None)),
+    }
+}
+
+pub async fn mark_setup_complete(state: &AppState) -> std::io::Result<()> {
     std::fs::create_dir_all(&state.config.state_dir)?;
     std::fs::write(state.config.setup_complete_flag(), b"1\n")?;
     state.setup.disable();
+    if let Some(proc) = state.login.lock().await.take() {
+        proc.abort().await;
+    }
     Ok(())
 }
