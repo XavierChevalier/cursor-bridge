@@ -32,13 +32,20 @@ async fn healthz() -> Json<Value> {
 }
 
 async fn list_models(State(config): State<Config>) -> Json<Value> {
+    let data: Vec<Value> = config
+        .models
+        .keys()
+        .map(|id| {
+            json!({
+                "id": id,
+                "object": "model",
+                "owned_by": "cursor-bridge"
+            })
+        })
+        .collect();
     Json(json!({
         "object": "list",
-        "data": [{
-            "id": config.model_id,
-            "object": "model",
-            "owned_by": "cursor-bridge"
-        }]
+        "data": data
     }))
 }
 
@@ -77,20 +84,37 @@ async fn chat_completions(
         }
     };
 
-    let model = if body.model.is_empty() {
-        config.model_id.clone()
+    let Some(cursor_model) = config.resolve_model(&body.model) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": {
+                    "message": format!(
+                        "model not allowed: {} (use GET /v1/models for the allowlist)",
+                        if body.model.is_empty() { "(empty)" } else { &body.model }
+                    ),
+                    "type": "invalid_request_error"
+                }
+            })),
+        )
+            .into_response();
+    };
+    let cursor_model = cursor_model.to_string();
+    let model_id = if body.model.is_empty() {
+        config.default_model_id().to_string()
     } else {
         body.model.clone()
     };
 
-    let content = match agent::print_turn(&config, &prompt).await {
+    let content = match agent::print_turn(&config, &cursor_model, &prompt).await {
         Ok(content) => content,
         Err(err) => {
+            let message = sanitize_agent_error(&err.to_string());
             return (
                 StatusCode::BAD_GATEWAY,
                 Json(json!({
                     "error": {
-                        "message": err.to_string(),
+                        "message": message,
                         "type": "server_error"
                     }
                 })),
@@ -100,13 +124,13 @@ async fn chat_completions(
     };
 
     if body.stream {
-        return sse_completion(&model, &content);
+        return sse_completion(&model_id, &content);
     }
 
     Json(json!({
         "id": "chatcmpl-bridge",
         "object": "chat.completion",
-        "model": model,
+        "model": model_id,
         "choices": [{
             "index": 0,
             "message": {
@@ -171,6 +195,11 @@ fn latest_user_prompt(messages: &[ChatMessage]) -> Option<String> {
         .rev()
         .find(|message| message.role == "user")
         .map(|message| message.content.clone())
+}
+
+fn sanitize_agent_error(raw: &str) -> String {
+    // Never echo bearer material if it somehow appears in process errors.
+    raw.replace("Bearer ", "Bearer [redacted] ")
 }
 
 async fn require_bearer(

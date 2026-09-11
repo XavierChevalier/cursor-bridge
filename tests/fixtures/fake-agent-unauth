@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Fake agent that simulates Cursor CLI when not logged in.
+set -euo pipefail
+echo "Authentication required. Run 'agent login' first." >&2
+exit 1

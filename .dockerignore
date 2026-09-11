@@ -1,0 +1,9 @@
+.git
+.target
+target
+.env
+.env.*
+*.md
+docs
+tests/e2e
+.github

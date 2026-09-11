@@ -13,5 +13,5 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.98.1"
-      - run: chmod +x tests/fixtures/fake-agent
+      - run: chmod +x tests/fixtures/fake-agent tests/fixtures/fake-agent-unauth
       - run: cargo test --tests

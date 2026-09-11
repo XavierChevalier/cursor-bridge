@@ -1,0 +1,47 @@
+# Consumer E2E stack: Bridge + fake agent + Open WebUI (OpenAI connection path).
+# No real Cursor credentials. No personal hostnames.
+
+name: cursor-bridge-e2e
+
+services:
+  bridge:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      CURSOR_BRIDGE_API_KEY: e2e-bridge-key
+      CURSOR_BRIDGE_AGENT_BIN: /usr/local/bin/fake-agent
+      CURSOR_BRIDGE_WORKSPACE: /workspace
+      CURSOR_BRIDGE_HOST: 0.0.0.0
+      CURSOR_BRIDGE_PORT: "8787"
+    volumes:
+      - ../tests/fixtures/fake-agent:/usr/local/bin/fake-agent:ro
+      - bridge-workspace:/workspace
+    expose:
+      - "8787"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8787/healthz"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:main
+    environment:
+      WEBUI_AUTH: "False"
+      OPENAI_API_BASE_URL: http://bridge:8787/v1
+      OPENAI_API_KEY: e2e-bridge-key
+    depends_on:
+      bridge:
+        condition: service_healthy
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+volumes:
+  bridge-workspace:

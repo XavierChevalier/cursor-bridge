@@ -18,19 +18,19 @@ Documentation-first repository. Implementation order below is intentional.
 
 ## Phase 2: Production hardening
 
-- [ ] Explicit model map (Auto + allowlisted Cursor models)
-- [ ] Conversation / session policy that avoids assistant-text replay
-- [ ] Workspace path jail documentation + optional deny patterns
-- [ ] Structured logging without secret leakage
-- [ ] Container image build that installs nothing under a masked `HOME` mount
+- [x] Explicit model map (Auto + allowlisted Cursor models)
+- [x] Conversation / session policy that avoids assistant-text replay (latest user turn only)
+- [x] Workspace path jail documentation + optional deny patterns (see [deploy.md](deploy.md))
+- [x] Structured logging without secret leakage (no bearer in health/errors)
+- [x] Container image build that installs nothing under a masked `HOME` mount
 
 ## Phase 3: Client polish
 
 - [ ] Verified recipes for Open WebUI and Computer (OpenAI connection)
-- [ ] Consumer E2E (Docker): Open WebUI + Computer against bridge + fake agent ([testing.md](testing.md) layer 3)
-- [ ] Clear errors when Cursor is not logged in
+- [x] Consumer E2E (Docker): Open WebUI against bridge + fake agent ([testing.md](testing.md) layer 3) — `tests/e2e/openwebui.e2e.sh`
+- [x] Clear errors when Cursor is not logged in
 - [ ] Optional request size / rate limits
-
+- [ ] Computer consumer E2E compose (same OpenAI path)
 ## Phase 4: Stretch
 
 - [ ] Better mapping of tool events into OpenAI-compatible streams (if clients benefit)

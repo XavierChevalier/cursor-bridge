@@ -57,6 +57,7 @@ Bridge keeps **one** integration surface (`/v1/...`) and lets you choose the UI.
 | [docs/clients.md](docs/clients.md)                           | Wiring Open WebUI, Computer, and generic clients                         |
 | [docs/security.md](docs/security.md)                         | Threat model, auth, secrets handling                                     |
 | [docs/testing.md](docs/testing.md)                           | FIRST pyramid: fake agent, Open WebUI / Computer E2E, live Cursor opt-in |
+| [docs/deploy.md](docs/deploy.md)                             | Workspace jail, container image, logging                                 |
 | [docs/roadmap.md](docs/roadmap.md)                           | Planned implementation phases                                            |
 
 ## Development
@@ -65,6 +66,8 @@ Bridge keeps **one** integration surface (`/v1/...`) and lets you choose the UI.
 cp .env.example .env   # set CURSOR_BRIDGE_API_KEY locally
 cargo test --tests
 cargo run
+# optional Docker consumer E2E (Open WebUI + fake agent):
+./tests/e2e/openwebui.e2e.sh
 ```
 
 Contract tests spawn `tests/fixtures/fake-agent` (no Cursor cloud, no secrets). See [docs/testing.md](docs/testing.md).
