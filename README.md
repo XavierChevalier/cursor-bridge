@@ -25,11 +25,11 @@ Open WebUI / Computer / LibreChat / curl / …
 
 ## Why a bridge (not a workbench UI)
 
-| Approach | Role |
-| -------- | ---- |
-| Cursor Bridge | Thin API brick. No browser UI of its own. Swap the front-end freely. |
+| Approach                         | Role                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------ |
+| Cursor Bridge                    | Thin API brick. No browser UI of its own. Swap the front-end freely.     |
 | Full machine UIs (e.g. Computer) | Chat + files + terminal + git in one product. Great UX, different scope. |
-| Direct CLI in a chat pipe | Possible, but every UI reimplements streaming, tools, and auth. |
+| Direct CLI in a chat pipe        | Possible, but every UI reimplements streaming, tools, and auth.          |
 
 Bridge keeps **one** integration surface (`/v1/...`) and lets you choose the UI.
 
@@ -50,13 +50,14 @@ Bridge keeps **one** integration surface (`/v1/...`) and lets you choose the UI.
 
 ## Docs
 
-| Doc | Contents |
-| --- | -------- |
-| [docs/architecture.md](docs/architecture.md) | Components, request flow, ACP vs print mode |
-| [docs/openai-compatibility.md](docs/openai-compatibility.md) | Endpoints, models, streaming, tool limits |
-| [docs/clients.md](docs/clients.md) | Wiring Open WebUI, Computer, and generic clients |
-| [docs/security.md](docs/security.md) | Threat model, auth, secrets handling |
-| [docs/roadmap.md](docs/roadmap.md) | Planned implementation phases |
+| Doc                                                          | Contents                                                                 |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| [docs/architecture.md](docs/architecture.md)                 | Components, request flow, ACP vs print mode                              |
+| [docs/openai-compatibility.md](docs/openai-compatibility.md) | Endpoints, models, streaming, tool limits                                |
+| [docs/clients.md](docs/clients.md)                           | Wiring Open WebUI, Computer, and generic clients                         |
+| [docs/security.md](docs/security.md)                         | Threat model, auth, secrets handling                                     |
+| [docs/testing.md](docs/testing.md)                           | FIRST pyramid: fake agent, Open WebUI / Computer E2E, live Cursor opt-in |
+| [docs/roadmap.md](docs/roadmap.md)                           | Planned implementation phases                                            |
 
 ## Configuration
 
