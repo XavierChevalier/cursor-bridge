@@ -51,6 +51,16 @@ for arg in "$@"; do
 done
 
 if [[ "${print_mode}" -eq 1 ]]; then
+  has_force=0
+  for arg in "$@"; do
+    case "${arg}" in
+    -f | --force | --yolo) has_force=1 ;;
+    esac
+  done
+  if [[ "${has_force}" -ne 1 ]]; then
+    echo "fake-agent: print mode requires --force" >&2
+    exit 2
+  fi
   printf '%s' "${prompt}"
   exit 0
 fi
