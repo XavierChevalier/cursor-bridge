@@ -55,6 +55,16 @@ Ignored or rejected with a clear error until designed:
 
 When `stream: true`, the bridge emits SSE chunks shaped like OpenAI Chat Completions streams (`data: {...}` / `data: [DONE]`).
 
+Mapped from Cursor `stream-json`:
+
+| Cursor event | OpenAI / Open WebUI shape |
+| ------------ | ------------------------- |
+| `thinking` delta | `delta.reasoning_content` |
+| `assistant` text delta | `delta.content` |
+| `tool_call` started/completed | `delta.content` with `<details type="tool_calls" …>` (tools already ran on the bridge) |
+
+**Never** emits `delta.tool_calls`: Open WebUI would try to execute those tools again and can loop.
+
 Clients that require WebSocket-only transports are out of scope; use HTTP SSE.
 
 ## What you lose vs a native Cursor UI

@@ -106,6 +106,20 @@ if [[ "${print_mode}" -eq 1 ]]; then
       echo "fake-agent: stream-json fixture expects --stream-partial-output" >&2
       exit 2
     fi
+
+    if [[ "${prompt}" == *"__AGENTIC__"* ]]; then
+      ts_ms=$(($(date +%s) * 1000))
+      printf '%s\n' "{\"type\":\"thinking\",\"subtype\":\"delta\",\"text\":\"planning the reply\",\"session_id\":\"fake-session\",\"timestamp_ms\":${ts_ms}}"
+      printf '%s\n' "{\"type\":\"thinking\",\"subtype\":\"completed\",\"session_id\":\"fake-session\",\"timestamp_ms\":${ts_ms}}"
+      printf '%s\n' "{\"type\":\"tool_call\",\"subtype\":\"started\",\"call_id\":\"call-1\",\"tool_call\":{\"readToolCall\":{\"args\":{\"path\":\"README.md\"}}},\"session_id\":\"fake-session\"}"
+      printf '%s\n' "{\"type\":\"tool_call\",\"subtype\":\"completed\",\"call_id\":\"call-1\",\"tool_call\":{\"readToolCall\":{\"args\":{\"path\":\"README.md\"},\"result\":{\"success\":{\"totalLines\":3,\"content\":\"# hi\"}}}},\"session_id\":\"fake-session\"}"
+      emit_assistant_delta "${prompt}"
+      full="$(json_escape "${prompt}")"
+      printf '%s\n' "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"${full}\"}]}}"
+      printf '%s\n' "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"${full}\",\"session_id\":\"fake-session\"}"
+      exit 0
+    fi
+
     local_half=$((${#prompt} / 2))
     if [[ "${local_half}" -lt 1 ]]; then
       local_half=${#prompt}
@@ -125,8 +139,7 @@ if [[ "${print_mode}" -eq 1 ]]; then
     exit 0
   fi
 
-  # Text mode also honors the slow marker so pre-fix contract tests can prove
-  # the HTTP handler waited for `.output()` before writing any SSE bytes.
+  # Text mode fallback (legacy). Prefer stream-json assembly in the bridge.
   if [[ "${prompt}" == *"__SLOW_STREAM__"* ]]; then
     sleep 0.4
   fi

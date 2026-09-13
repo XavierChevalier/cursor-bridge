@@ -17,7 +17,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::convert::Infallible;
 
-use crate::agent;
+use crate::agent::{self, BridgeDelta};
 use crate::setup::{mark_setup_complete, AppState};
 
 pub fn router(state: AppState) -> Router {
@@ -239,7 +239,34 @@ async fn list_models(State(state): State<AppState>) -> Json<Value> {
 #[derive(Debug, Deserialize)]
 struct ChatMessage {
     role: String,
+    #[serde(deserialize_with = "deserialize_message_content")]
     content: String,
+}
+
+fn deserialize_message_content<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::String(s) => Ok(s),
+        serde_json::Value::Array(parts) => {
+            let mut text = String::new();
+            for part in parts {
+                if part.get("type").and_then(|t| t.as_str()) == Some("text") {
+                    if let Some(piece) = part.get("text").and_then(|t| t.as_str()) {
+                        text.push_str(piece);
+                    }
+                } else if let Some(piece) = part.as_str() {
+                    text.push_str(piece);
+                }
+            }
+            Ok(text)
+        }
+        other => Err(serde::de::Error::custom(format!(
+            "message content must be string or content parts array, got {other}"
+        ))),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -312,8 +339,8 @@ async fn chat_completions(
         };
     }
 
-    let content = match agent::print_turn(config, &cursor_model, &prompt).await {
-        Ok(content) => content,
+    let turn = match agent::print_turn(config, &cursor_model, &prompt).await {
+        Ok(turn) => turn,
         Err(err) => {
             let message = sanitize_agent_error(&err.to_string());
             return (
@@ -329,16 +356,21 @@ async fn chat_completions(
         }
     };
 
+    let mut message = json!({
+        "role": "assistant",
+        "content": turn.content
+    });
+    if !turn.reasoning_content.is_empty() {
+        message["reasoning_content"] = json!(turn.reasoning_content);
+    }
+
     Json(json!({
         "id": "chatcmpl-bridge",
         "object": "chat.completion",
         "model": model_id,
         "choices": [{
             "index": 0,
-            "message": {
-                "role": "assistant",
-                "content": content
-            },
+            "message": message,
             "finish_reason": "stop"
         }]
     }))
@@ -356,16 +388,25 @@ fn live_sse_completion(
 
     let stream = async_stream::stream! {
         let mut failed = false;
+        let mut sent_role = false;
         while let Some(item) = deltas.next().await {
             match item {
                 Ok(piece) => {
+                    let mut delta = match piece {
+                        BridgeDelta::Reasoning(text) => json!({ "reasoning_content": text }),
+                        BridgeDelta::Content(text) => json!({ "content": text }),
+                    };
+                    if !sent_role {
+                        delta["role"] = json!("assistant");
+                        sent_role = true;
+                    }
                     let chunk = json!({
                         "id": "chatcmpl-bridge",
                         "object": "chat.completion.chunk",
                         "model": model,
                         "choices": [{
                             "index": 0,
-                            "delta": { "content": piece },
+                            "delta": delta,
                             "finish_reason": null
                         }]
                     });

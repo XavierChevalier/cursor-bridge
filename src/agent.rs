@@ -3,6 +3,7 @@
 use std::process::Stdio;
 use std::time::Duration;
 
+use futures_util::StreamExt;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::time::timeout;
@@ -35,6 +36,21 @@ pub struct DiscoveredModel {
     pub label: String,
 }
 
+/// One Open WebUI-facing piece derived from a Cursor stream-json line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BridgeDelta {
+    /// Maps to SSE `delta.reasoning_content` / message.reasoning_content.
+    Reasoning(String),
+    /// Maps to SSE `delta.content` (assistant text or tool `<details>` blocks).
+    Content(String),
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TurnResult {
+    pub content: String,
+    pub reasoning_content: String,
+}
+
 /// A running `agent login` that must stay alive until the browser OAuth finishes.
 pub struct LoginProcess {
     pub url: String,
@@ -60,52 +76,33 @@ fn agent_command(config: &Config) -> Command {
     cmd
 }
 
-/// Run one non-interactive print turn; return assistant text.
+/// Run one non-interactive turn via stream-json and assemble Computer-facing fields.
 pub async fn print_turn(
     config: &Config,
     cursor_model: &str,
     prompt: &str,
-) -> Result<String, AgentError> {
-    // Non-interactive HTTP turns cannot answer CLI trust or permission prompts.
-    // Workspace is operator-chosen (CURSOR_BRIDGE_WORKSPACE); trust it and force
-    // allow tools unless denied in ~/.cursor/cli-config.json.
-    let output = agent_command(config)
-        .arg("-p")
-        .arg("--trust")
-        .arg("--force")
-        .arg("--output-format")
-        .arg("text")
-        .arg("--model")
-        .arg(cursor_model)
-        .arg(prompt)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await?;
-
-    if !output.status.success() {
-        let code = output.status.code().unwrap_or(-1);
-        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-        return Err(AgentError::Exit {
-            status: code,
-            stderr,
-        });
+) -> Result<TurnResult, AgentError> {
+    let mut stream = stream_print_turn(config, cursor_model, prompt)?;
+    let mut out = TurnResult::default();
+    while let Some(item) = stream.next().await {
+        match item? {
+            BridgeDelta::Reasoning(piece) => out.reasoning_content.push_str(&piece),
+            BridgeDelta::Content(piece) => out.content.push_str(&piece),
+        }
     }
-
-    String::from_utf8(output.stdout).map_err(|_| AgentError::Utf8)
+    Ok(out)
 }
 
 /// Live print turn: Cursor `stream-json` + `--stream-partial-output` deltas.
 ///
-/// Yields assistant text pieces as they arrive. Duplicate buffered flushes
-/// (pre-tool `model_call_id`, final flush without `timestamp_ms`) are skipped
-/// per Cursor CLI output-format docs.
+/// Yields reasoning, tool traces (as content `<details>`), and assistant text.
+/// Duplicate buffered assistant flushes are skipped per Cursor CLI docs.
 pub fn stream_print_turn(
     config: &Config,
     cursor_model: &str,
     prompt: &str,
 ) -> Result<
-    std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<String, AgentError>> + Send>>,
+    std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<BridgeDelta, AgentError>> + Send>>,
     AgentError,
 > {
     let mut child = agent_command(config)
@@ -153,7 +150,7 @@ pub fn stream_print_turn(
         loop {
             match lines.next_line().await {
                 Ok(Some(line)) => {
-                    if let Some(delta) = extract_stream_json_delta(&line) {
+                    if let Some(delta) = map_stream_json_line(&line) {
                         yield Ok(delta);
                     }
                 }
@@ -190,7 +187,97 @@ pub fn stream_print_turn(
     Ok(Box::pin(stream))
 }
 
-/// Extract a live text delta from one `stream-json` NDJSON line.
+/// Map one Cursor stream-json NDJSON line into an Open WebUI-facing delta.
+pub fn map_stream_json_line(line: &str) -> Option<BridgeDelta> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    match value.get("type")?.as_str()? {
+        "thinking" => map_thinking_event(&value),
+        "tool_call" => map_tool_call_event(&value),
+        "assistant" => extract_stream_json_delta(line).map(BridgeDelta::Content),
+        _ => None,
+    }
+}
+
+fn map_thinking_event(value: &serde_json::Value) -> Option<BridgeDelta> {
+    match value
+        .get("subtype")
+        .and_then(|s| s.as_str())
+        .unwrap_or("delta")
+    {
+        "delta" => {
+            let text = value.get("text")?.as_str()?;
+            if text.is_empty() {
+                None
+            } else {
+                Some(BridgeDelta::Reasoning(text.to_string()))
+            }
+        }
+        _ => None,
+    }
+}
+
+fn map_tool_call_event(value: &serde_json::Value) -> Option<BridgeDelta> {
+    let subtype = value.get("subtype")?.as_str()?;
+    let call_id = value
+        .get("call_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("tool");
+    let tool_obj = value.get("tool_call")?.as_object()?;
+    let (raw_name, payload) = tool_obj.iter().next()?;
+    let name = humanize_tool_name(raw_name);
+    let args = payload.get("args").cloned().unwrap_or(serde_json::json!({}));
+    let args_attr = html_attr_escape(&args.to_string());
+
+    match subtype {
+        "started" => Some(BridgeDelta::Content(format!(
+            "<details type=\"tool_calls\" done=\"false\" id=\"{id}\" name=\"{name}\" arguments=\"{args}\">\n<summary>{name}</summary>\n</details>\n",
+            id = html_attr_escape(call_id),
+            name = html_attr_escape(&name),
+            args = args_attr,
+        ))),
+        "completed" => {
+            let result = payload
+                .get("result")
+                .map(|r| r.to_string())
+                .unwrap_or_else(|| "{}".to_string());
+            Some(BridgeDelta::Content(format!(
+                "<details type=\"tool_calls\" done=\"true\" id=\"{id}\" name=\"{name}\" arguments=\"{args}\">\n<summary>{name}</summary>\n{result}\n</details>\n",
+                id = html_attr_escape(call_id),
+                name = html_attr_escape(&name),
+                args = args_attr,
+                result = html_body_escape(&result),
+            )))
+        }
+        _ => None,
+    }
+}
+
+fn humanize_tool_name(raw: &str) -> String {
+    let trimmed = raw.strip_suffix("ToolCall").unwrap_or(raw);
+    if trimmed.is_empty() {
+        return "tool".to_string();
+    }
+    let mut chars = trimmed.chars();
+    let Some(first) = chars.next() else {
+        return "tool".to_string();
+    };
+    format!("{}{}", first.to_ascii_uppercase(), chars.as_str())
+}
+
+fn html_attr_escape(raw: &str) -> String {
+    raw.replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+fn html_body_escape(raw: &str) -> String {
+    raw.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// Extract a live text delta from one `stream-json` NDJSON assistant line.
 pub fn extract_stream_json_delta(line: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(line).ok()?;
     if value.get("type")?.as_str()? != "assistant" {
