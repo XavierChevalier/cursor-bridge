@@ -61,9 +61,12 @@ Mapped from Cursor `stream-json`:
 | ------------ | ------------------------- |
 | `thinking` delta | `delta.reasoning_content` |
 | `assistant` text delta | `delta.content` |
-| `tool_call` started/completed | `delta.content` with `<details type="tool_calls" …>` (tools already ran on the bridge) |
+| `tool_call` started (user-facing) | `delta.content` markdown line (`→ **Read** \`path\``) |
 
-**Never** emits `delta.tool_calls`: Open WebUI would try to execute those tools again and can loop.
+Internal Cursor hooks (`Hook*`, `CompletedAtMs`, …) are dropped.
+
+**Never** emits `delta.tool_calls`: Open WebUI Computer would try to execute those tools again.
+**Never** emits HTML `<details type="tool_calls">`: Computer renders that as raw text in Thinking.
 
 Clients that require WebSocket-only transports are out of scope; use HTTP SSE.
 

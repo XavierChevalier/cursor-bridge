@@ -41,7 +41,7 @@ pub struct DiscoveredModel {
 pub enum BridgeDelta {
     /// Maps to SSE `delta.reasoning_content` / message.reasoning_content.
     Reasoning(String),
-    /// Maps to SSE `delta.content` (assistant text or tool `<details>` blocks).
+    /// Maps to SSE `delta.content` (assistant text or markdown tool lines).
     Content(String),
 }
 
@@ -95,7 +95,7 @@ pub async fn print_turn(
 
 /// Live print turn: Cursor `stream-json` + `--stream-partial-output` deltas.
 ///
-/// Yields reasoning, tool traces (as content `<details>`), and assistant text.
+/// Yields reasoning, markdown tool lines, and assistant text.
 /// Duplicate buffered assistant flushes are skipped per Cursor CLI docs.
 pub fn stream_print_turn(
     config: &Config,
@@ -217,39 +217,30 @@ fn map_thinking_event(value: &serde_json::Value) -> Option<BridgeDelta> {
 }
 
 fn map_tool_call_event(value: &serde_json::Value) -> Option<BridgeDelta> {
+    // Emit on started only. Computer (and most chat UIs) show delta.content as
+    // markdown/plain text: HTML <details type="tool_calls"> renders as raw tags
+    // inside/near Thinking. Never emit delta.tool_calls (Computer would re-run tools).
     let subtype = value.get("subtype")?.as_str()?;
-    let call_id = value
-        .get("call_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("tool");
+    if subtype != "started" {
+        return None;
+    }
     let tool_obj = value.get("tool_call")?.as_object()?;
     let (raw_name, payload) = tool_obj.iter().next()?;
+    if is_internal_cursor_tool(raw_name) {
+        return None;
+    }
     let name = humanize_tool_name(raw_name);
     let args = payload.get("args").cloned().unwrap_or(serde_json::json!({}));
-    let args_attr = html_attr_escape(&args.to_string());
+    let summary = tool_args_summary(&name, &args);
+    Some(BridgeDelta::Content(format!("\n\n→ **{name}**{summary}\n\n")))
+}
 
-    match subtype {
-        "started" => Some(BridgeDelta::Content(format!(
-            "<details type=\"tool_calls\" done=\"false\" id=\"{id}\" name=\"{name}\" arguments=\"{args}\">\n<summary>{name}</summary>\n</details>\n",
-            id = html_attr_escape(call_id),
-            name = html_attr_escape(&name),
-            args = args_attr,
-        ))),
-        "completed" => {
-            let result = payload
-                .get("result")
-                .map(|r| r.to_string())
-                .unwrap_or_else(|| "{}".to_string());
-            Some(BridgeDelta::Content(format!(
-                "<details type=\"tool_calls\" done=\"true\" id=\"{id}\" name=\"{name}\" arguments=\"{args}\">\n<summary>{name}</summary>\n{result}\n</details>\n",
-                id = html_attr_escape(call_id),
-                name = html_attr_escape(&name),
-                args = args_attr,
-                result = html_body_escape(&result),
-            )))
-        }
-        _ => None,
-    }
+fn is_internal_cursor_tool(raw_name: &str) -> bool {
+    let lower = raw_name.to_ascii_lowercase();
+    lower.starts_with("hook")
+        || lower.starts_with("completedatms")
+        || lower.contains("hookadditional")
+        || lower.contains("keepalive")
 }
 
 fn humanize_tool_name(raw: &str) -> String {
@@ -264,17 +255,54 @@ fn humanize_tool_name(raw: &str) -> String {
     format!("{}{}", first.to_ascii_uppercase(), chars.as_str())
 }
 
-fn html_attr_escape(raw: &str) -> String {
-    raw.replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
+fn tool_args_summary(name: &str, args: &serde_json::Value) -> String {
+    let obj = args.as_object();
+    let pick = |keys: &[&str]| -> Option<String> {
+        let map = obj?;
+        for key in keys {
+            if let Some(v) = map.get(*key) {
+                if let Some(s) = v.as_str() {
+                    if !s.is_empty() {
+                        return Some(s.to_string());
+                    }
+                }
+            }
+        }
+        None
+    };
 
-fn html_body_escape(raw: &str) -> String {
-    raw.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
+    let detail = match name {
+        "Read" | "Write" | "Delete" | "EditNotebook" => pick(&["path", "target_notebook"]),
+        "Shell" => pick(&["command", "description"]),
+        "Grep" => pick(&["pattern", "path"]),
+        "Glob" => pick(&["glob_pattern", "target_directory"]),
+        "WebSearch" => pick(&["search_term", "query"]),
+        "WebFetch" => pick(&["url"]),
+        "Task" => pick(&["description", "prompt"]),
+        _ => pick(&[
+            "path",
+            "command",
+            "query",
+            "pattern",
+            "url",
+            "description",
+            "name",
+        ]),
+    };
+
+    match detail {
+        Some(s) => {
+            let clipped = if s.chars().count() > 120 {
+                let truncated: String = s.chars().take(117).collect();
+                format!("{truncated}...")
+            } else {
+                s
+            };
+            let escaped = clipped.replace('`', "'");
+            format!(" `{escaped}`")
+        }
+        None => String::new(),
+    }
 }
 
 /// Extract a live text delta from one `stream-json` NDJSON assistant line.

@@ -1,7 +1,8 @@
-//! Contract: thinking + tool_call stream-json events reach Open WebUI-shaped SSE.
+//! Contract: thinking + tool_call stream-json events reach Computer-friendly SSE.
 //!
-//! Computer must see reasoning and tool traces. Never emit OpenAI delta.tool_calls
-//! (Open WebUI would re-execute tools in a loop).
+//! Computer renders tools from structured output / plain markdown, not HTML
+//! `<details type="tool_calls">` (those show as raw text in Thinking).
+//! Never emit OpenAI delta.tool_calls (Computer would re-execute tools).
 
 use std::path::PathBuf;
 
@@ -72,8 +73,12 @@ async fn stream_forwards_thinking_as_reasoning_content() {
         "expected thinking mapped to reasoning_content, got {reasoning:?}"
     );
     assert!(
-        content.contains("type=\"tool_calls\""),
-        "expected tool details in content, got {content:?}"
+        !content.contains("<details"),
+        "Computer renders details as raw text; use markdown tool lines: {content:?}"
+    );
+    assert!(
+        content.contains("Read") && content.contains("README.md"),
+        "expected markdown tool line in content, got {content:?}"
     );
     assert!(
         content.contains("hello"),
@@ -108,8 +113,12 @@ async fn non_stream_includes_reasoning_and_tool_details() {
         "non-stream missing reasoning_content: {message}"
     );
     assert!(
-        content.contains("type=\"tool_calls\""),
-        "non-stream missing tool details: {content}"
+        !content.contains("<details"),
+        "non-stream must not emit details HTML: {content}"
+    );
+    assert!(
+        content.contains("Read") && content.contains("README.md"),
+        "non-stream missing markdown tool line: {content}"
     );
     assert!(content.contains("hello"), "non-stream missing text: {content}");
 }
@@ -156,19 +165,21 @@ fn map_stream_json_maps_thinking_and_tools() {
     }
     match cursor_bridge::agent::map_stream_json_line(tool_started) {
         Some(cursor_bridge::agent::BridgeDelta::Content(c)) => {
-            assert!(c.contains("type=\"tool_calls\""));
-            assert!(c.contains("done=\"false\""));
-            assert!(c.contains("README.md"));
+            assert!(!c.contains("<details"), "got {c}");
+            assert!(c.contains("Read"), "got {c}");
+            assert!(c.contains("README.md"), "got {c}");
         }
         other => panic!("expected tool start Content, got {other:?}"),
     }
     match cursor_bridge::agent::map_stream_json_line(tool_done) {
-        Some(cursor_bridge::agent::BridgeDelta::Content(c)) => {
-            assert!(c.contains("done=\"true\""));
-            assert!(c.contains("totalLines"));
-        }
-        other => panic!("expected tool done Content, got {other:?}"),
+        None => {}
+        other => panic!("completed read should be silent (started already emitted), got {other:?}"),
     }
+    let hook = r#"{"type":"tool_call","subtype":"started","call_id":"h1","tool_call":{"hookAdditionalContextsToolCall":{"args":{}}}}"#;
+    assert!(
+        cursor_bridge::agent::map_stream_json_line(hook).is_none(),
+        "internal Cursor hooks must not leak into Computer UI"
+    );
     match cursor_bridge::agent::map_stream_json_line(assistant) {
         Some(cursor_bridge::agent::BridgeDelta::Content(c)) => assert_eq!(c, "hi"),
         other => panic!("expected assistant Content, got {other:?}"),
