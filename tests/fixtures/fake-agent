@@ -24,31 +24,70 @@ if [[ "${1:-}" == "login" ]]; then
   exit 0
 fi
 
+# Shared with model-discovery contracts (other parallel work).
+if [[ "${1:-}" == "models" ]]; then
+  cat <<'EOF'
+Available models
+auto - Auto (current, default)
+composer-2.5 - Composer 2.5
+gpt-5.2 - GPT-5.2
+EOF
+  exit 0
+fi
+
 print_mode=0
+stream_partial=0
+output_format="text"
 prompt=""
 prev=""
 for arg in "$@"; do
-    case "${arg}" in
-    -p | --print)
-      print_mode=1
-      ;;
-    --trust | -f | --yolo)
-      ;;
-    --output-format | --model)
-      prev="${arg}"
-      ;;
-    text | default | *)
-      if [[ "${prev}" == "--output-format" || "${prev}" == "--model" ]]; then
-        prev=""
-        continue
-      fi
-      if [[ "${arg}" != -* ]]; then
-        prompt="${arg}"
-      fi
+  case "${arg}" in
+  -p | --print)
+    print_mode=1
+    ;;
+  --trust | -f | --yolo | --force)
+    ;;
+  --stream-partial-output)
+    stream_partial=1
+    ;;
+  --output-format | --model)
+    prev="${arg}"
+    ;;
+  *)
+    if [[ "${prev}" == "--output-format" ]]; then
+      output_format="${arg}"
       prev=""
-      ;;
+      continue
+    fi
+    if [[ "${prev}" == "--model" ]]; then
+      prev=""
+      continue
+    fi
+    if [[ "${arg}" != -* ]]; then
+      prompt="${arg}"
+    fi
+    prev=""
+    ;;
   esac
 done
+
+json_escape() {
+  local s=$1
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  s=${s//$'\n'/\\n}
+  s=${s//$'\r'/\\r}
+  s=${s//$'\t'/\\t}
+  printf '%s' "${s}"
+}
+
+emit_assistant_delta() {
+  local text
+  text="$(json_escape "$1")"
+  local ts_ms
+  ts_ms=$(($(date +%s) * 1000))
+  printf '%s\n' "{\"type\":\"assistant\",\"timestamp_ms\":${ts_ms},\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"${text}\"}]}}"
+}
 
 if [[ "${print_mode}" -eq 1 ]]; then
   has_force=0
@@ -60,6 +99,36 @@ if [[ "${print_mode}" -eq 1 ]]; then
   if [[ "${has_force}" -ne 1 ]]; then
     echo "fake-agent: print mode requires --force" >&2
     exit 2
+  fi
+
+  if [[ "${output_format}" == "stream-json" ]]; then
+    if [[ "${stream_partial}" -ne 1 ]]; then
+      echo "fake-agent: stream-json fixture expects --stream-partial-output" >&2
+      exit 2
+    fi
+    local_half=$((${#prompt} / 2))
+    if [[ "${local_half}" -lt 1 ]]; then
+      local_half=${#prompt}
+    fi
+    first="${prompt:0:local_half}"
+    second="${prompt:local_half}"
+    emit_assistant_delta "${first}"
+    if [[ "${prompt}" == *"__SLOW_STREAM__"* ]]; then
+      sleep 0.4
+    fi
+    if [[ -n "${second}" ]]; then
+      emit_assistant_delta "${second}"
+    fi
+    full="$(json_escape "${prompt}")"
+    printf '%s\n' "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"${full}\"}]}}"
+    printf '%s\n' "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"${full}\",\"session_id\":\"fake-session\"}"
+    exit 0
+  fi
+
+  # Text mode also honors the slow marker so pre-fix contract tests can prove
+  # the HTTP handler waited for `.output()` before writing any SSE bytes.
+  if [[ "${prompt}" == *"__SLOW_STREAM__"* ]]; then
+    sleep 0.4
   fi
   printf '%s' "${prompt}"
   exit 0

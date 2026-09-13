@@ -14,6 +14,8 @@ pub struct Config {
     pub default_model_id: String,
     /// Bridge model id → Cursor CLI `--model` value.
     pub models: BTreeMap<String, String>,
+    /// When true, merge models from `agent models` into `/v1/models` and chat allowlist.
+    pub discover_models: bool,
 }
 
 impl Config {
@@ -28,6 +30,8 @@ impl Config {
             state_dir: PathBuf::from("."),
             default_model_id: "cursor-auto".to_string(),
             models,
+            // Contract tests opt in explicitly; production defaults on via from_env.
+            discover_models: false,
         }
     }
 
@@ -67,6 +71,11 @@ impl Config {
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from(home));
 
+        let discover_models = match std::env::var("CURSOR_BRIDGE_DISCOVER_MODELS") {
+            Ok(v) => !(v == "0" || v.eq_ignore_ascii_case("false")),
+            Err(_) => true,
+        };
+
         Self {
             api_key,
             agent_bin: std::env::var("CURSOR_BRIDGE_AGENT_BIN").unwrap_or_else(|_| "agent".into()),
@@ -75,6 +84,7 @@ impl Config {
             state_dir,
             default_model_id,
             models,
+            discover_models,
         }
     }
 

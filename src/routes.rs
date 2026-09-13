@@ -3,14 +3,19 @@
 use axum::{
     body::Body,
     extract::State,
-    http::{header::AUTHORIZATION, HeaderMap, HeaderValue, Request, StatusCode},
+    http::{header::AUTHORIZATION, Request, StatusCode},
     middleware::{from_fn_with_state, Next},
-    response::{Html, IntoResponse, Response},
+    response::{
+        sse::{Event, KeepAlive, Sse},
+        Html, IntoResponse, Response,
+    },
     routing::{get, post},
     Json, Router,
 };
+use futures_util::StreamExt;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::convert::Infallible;
 
 use crate::agent;
 use crate::setup::{mark_setup_complete, AppState};
@@ -214,9 +219,8 @@ const SETUP_HTML: &str = r#"<!DOCTYPE html>
 "#;
 
 async fn list_models(State(state): State<AppState>) -> Json<Value> {
-    let data: Vec<Value> = state
-        .config
-        .models
+    let models = state.models.effective_models(&state.config).await;
+    let data: Vec<Value> = models
         .keys()
         .map(|id| {
             json!({
@@ -268,7 +272,7 @@ async fn chat_completions(
         }
     };
 
-    let Some(cursor_model) = config.resolve_model(&body.model) else {
+    let Some(cursor_model) = state.models.resolve_model(config, &body.model).await else {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({
@@ -283,12 +287,30 @@ async fn chat_completions(
         )
             .into_response();
     };
-    let cursor_model = cursor_model.to_string();
     let model_id = if body.model.is_empty() {
         config.default_model_id().to_string()
     } else {
         body.model.clone()
     };
+
+    if body.stream {
+        return match live_sse_completion(config, &cursor_model, &model_id, &prompt) {
+            Ok(response) => response,
+            Err(err) => {
+                let message = sanitize_agent_error(&err.to_string());
+                (
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({
+                        "error": {
+                            "message": message,
+                            "type": "server_error"
+                        }
+                    })),
+                )
+                    .into_response()
+            }
+        };
+    }
 
     let content = match agent::print_turn(config, &cursor_model, &prompt).await {
         Ok(content) => content,
@@ -307,10 +329,6 @@ async fn chat_completions(
         }
     };
 
-    if body.stream {
-        return sse_completion(&model_id, &content);
-    }
-
     Json(json!({
         "id": "chatcmpl-bridge",
         "object": "chat.completion",
@@ -327,50 +345,70 @@ async fn chat_completions(
     .into_response()
 }
 
-fn sse_completion(model: &str, content: &str) -> Response {
-    let mut body = String::new();
-    for ch in content.chars() {
-        let piece = ch.to_string();
-        let chunk = json!({
-            "id": "chatcmpl-bridge",
-            "object": "chat.completion.chunk",
-            "model": model,
-            "choices": [{
-                "index": 0,
-                "delta": { "content": piece },
-                "finish_reason": null
-            }]
-        });
-        body.push_str("data: ");
-        body.push_str(&chunk.to_string());
-        body.push_str("\n\n");
-    }
-    let done = json!({
-        "id": "chatcmpl-bridge",
-        "object": "chat.completion.chunk",
-        "model": model,
-        "choices": [{
-            "index": 0,
-            "delta": {},
-            "finish_reason": "stop"
-        }]
-    });
-    body.push_str("data: ");
-    body.push_str(&done.to_string());
-    body.push_str("\n\n");
-    body.push_str("data: [DONE]\n\n");
+fn live_sse_completion(
+    config: &crate::Config,
+    cursor_model: &str,
+    model_id: &str,
+    prompt: &str,
+) -> Result<Response, agent::AgentError> {
+    let mut deltas = agent::stream_print_turn(config, cursor_model, prompt)?;
+    let model = model_id.to_string();
 
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        axum::http::header::CONTENT_TYPE,
-        HeaderValue::from_static("text/event-stream"),
-    );
-    headers.insert(
-        axum::http::header::CACHE_CONTROL,
-        HeaderValue::from_static("no-cache"),
-    );
+    let stream = async_stream::stream! {
+        let mut failed = false;
+        while let Some(item) = deltas.next().await {
+            match item {
+                Ok(piece) => {
+                    let chunk = json!({
+                        "id": "chatcmpl-bridge",
+                        "object": "chat.completion.chunk",
+                        "model": model,
+                        "choices": [{
+                            "index": 0,
+                            "delta": { "content": piece },
+                            "finish_reason": null
+                        }]
+                    });
+                    yield Ok::<Event, Infallible>(Event::default().data(chunk.to_string()));
+                }
+                Err(err) => {
+                    failed = true;
+                    let message = sanitize_agent_error(&err.to_string());
+                    let chunk = json!({
+                        "id": "chatcmpl-bridge",
+                        "object": "chat.completion.chunk",
+                        "model": model,
+                        "choices": [{
+                            "index": 0,
+                            "delta": { "content": format!("\n\n[bridge error: {message}]") },
+                            "finish_reason": "stop"
+                        }]
+                    });
+                    yield Ok(Event::default().data(chunk.to_string()));
+                    break;
+                }
+            }
+        }
 
-    (StatusCode::OK, headers, body).into_response()
+        if !failed {
+            let done = json!({
+                "id": "chatcmpl-bridge",
+                "object": "chat.completion.chunk",
+                "model": model,
+                "choices": [{
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": "stop"
+                }]
+            });
+            yield Ok(Event::default().data(done.to_string()));
+        }
+        yield Ok(Event::default().data("[DONE]"));
+    };
+
+    Ok(Sse::new(stream)
+        .keep_alive(KeepAlive::default())
+        .into_response())
 }
 
 /// Build a print-mode prompt from the OpenAI `messages` array.

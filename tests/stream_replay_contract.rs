@@ -1,6 +1,7 @@
 //! Contract: streaming SSE and multi-turn history forwarded to the agent prompt.
 
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use axum::body::Body;
 use http_body_util::BodyExt;
@@ -123,4 +124,82 @@ async fn chat_stream_emits_sse_with_reassembled_content() {
         }
     }
     assert_eq!(assembled, "User: OK");
+}
+
+/// Root-cause guard: Open WebUI Computer expects tokens while the agent is still
+/// generating. Buffering the full CLI turn before the first SSE byte looks like
+/// "no streaming" in the UI.
+#[tokio::test]
+async fn chat_stream_emits_first_sse_before_agent_finishes() {
+    let started = Instant::now();
+    let response = app()
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("Authorization", "Bearer test-bridge-key")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"model":"cursor-auto","stream":true,"messages":[{"role":"user","content":"__SLOW_STREAM__ abcdefghijklmnop"}]}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+
+    let mut body = response.into_body();
+    let mut buf = Vec::new();
+    let mut first_data_at = None;
+
+    loop {
+        let frame = tokio::time::timeout(Duration::from_secs(2), body.frame())
+            .await
+            .expect("timed out waiting for SSE frame")
+            .expect("body frame error")
+            .expect("unexpected end of SSE body before [DONE]");
+        if let Ok(data) = frame.into_data() {
+            if first_data_at.is_none() && !data.is_empty() {
+                first_data_at = Some(started.elapsed());
+            }
+            buf.extend_from_slice(&data);
+            if std::str::from_utf8(&buf).unwrap_or("").contains("data: [DONE]") {
+                break;
+            }
+        }
+    }
+
+    let first = first_data_at.expect("expected at least one SSE data frame");
+    assert!(
+        first < Duration::from_millis(250),
+        "first SSE byte arrived at {first:?}; expected <250ms. \
+         The bridge likely waited for the full agent turn (fake sleeps 400ms mid-stream) \
+         before writing any SSE; Open WebUI shows no live generation."
+    );
+
+    let total = started.elapsed();
+    assert!(
+        total >= Duration::from_millis(350),
+        "stream finished too fast ({total:?}); slow fake agent did not pause mid-turn"
+    );
+
+    let text = String::from_utf8(buf).unwrap();
+    let mut assembled = String::new();
+    for line in text.lines() {
+        let Some(payload) = line.strip_prefix("data: ") else {
+            continue;
+        };
+        if payload == "[DONE]" {
+            continue;
+        }
+        let chunk: serde_json::Value = serde_json::from_str(payload).expect("sse json");
+        if let Some(piece) = chunk["choices"][0]["delta"]["content"].as_str() {
+            assembled.push_str(piece);
+        }
+    }
+    assert!(
+        assembled.contains("__SLOW_STREAM__"),
+        "reassembled stream missing prompt echo: {assembled}"
+    );
 }

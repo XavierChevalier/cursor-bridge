@@ -25,14 +25,16 @@ Authorization: Bearer <CURSOR_BRIDGE_API_KEY>
 
 ## Models
 
-Default mapping (names are illustrative; exact ids will be fixed in code):
+| Bridge `model` id | Cursor side                         | Notes                                      |
+| ----------------- | ----------------------------------- | ------------------------------------------ |
+| `cursor-auto`     | Auto (`default` / `auto`)           | Recommended default (`CURSOR_BRIDGE_*`)    |
+| Cursor CLI ids    | Same id passed to `agent --model`   | From `agent models` when discovery is on   |
+| Extra map entries | Operator-defined                    | `CURSOR_BRIDGE_EXTRA_MODELS`               |
 
-| Bridge `model` id          | Cursor side      | Notes                 |
-| -------------------------- | ---------------- | --------------------- |
-| `cursor-auto`              | Auto / `default` | Recommended default   |
-| `cursor/<cursor-model-id>` | Pass-through     | Optional escape hatch |
-
-`GET /v1/models` should only list models the operator enabled.
+`GET /v1/models` lists the static allowlist plus, by default, every model
+returned by `agent models` for the logged-in Cursor account
+(`CURSOR_BRIDGE_DISCOVER_MODELS`, default on). Set that env to `0` to advertise
+only `CURSOR_BRIDGE_MODEL_ID` and `CURSOR_BRIDGE_EXTRA_MODELS`.
 
 ## Chat Completions request
 

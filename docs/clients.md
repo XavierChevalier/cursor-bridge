@@ -37,12 +37,13 @@ Streaming chat: set `"stream": true` and read SSE lines.
 3. Set:
    - **API Base URL** → `http://127.0.0.1:8787/v1` (or your private URL + `/v1`)
    - **API Key** → the bridge key from your `.env` (`CURSOR_BRIDGE_API_KEY`)
-4. Enable the connection and select `cursor-auto` (or whatever `/v1/models` returns).
+4. Enable the connection and select a model from `/v1/models` (default `cursor-auto`, plus account models when discovery is on).
 
 Notes:
 
 - Open WebUI will not show Cursor-native tool approval UI. Assume elevated tool autonomy on the bridge host.
 - Knowledge bases, Open WebUI tools, and filters are **not** forwarded to Cursor unless you explicitly design that later.
+- With `CURSOR_BRIDGE_DISCOVER_MODELS` enabled (default), Bridge merges `agent models` into the list so Computer can pick Composer, Claude, GPT, etc., not only Auto.
 
 ## Open WebUI Computer
 
